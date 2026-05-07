@@ -6,8 +6,18 @@ import { supabase } from './supabase';
 
 const STORAGE_KEY = 'consultant_pilotage_v1_state';
 
+export const isValidUuid = (value: string | null | undefined): boolean => {
+  if (!value) return false;
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(value);
+};
+
+export const nullableUuid = (value: string | null | undefined): string | null => {
+  return isValidUuid(value) ? value! : null;
+};
+
 const mapUserToSupabase = (u: User) => ({
-  id: u.id,
+  id: nullableUuid(u.id),
   email: u.email,
   first_name: u.firstName,
   last_name: u.lastName,
@@ -38,7 +48,7 @@ const mapSupabaseToUser = (u: any): User => ({
 });
 
 const mapCollaboratorToSupabase = (c: Collaborator) => ({
-  id: c.id,
+  id: nullableUuid(c.id),
   email: c.email,
   first_name: c.firstName,
   last_name: c.lastName,
@@ -68,32 +78,44 @@ const mapSupabaseToCollaborator = (c: any): Collaborator => ({
   notes: c.notes
 });
 
-const mapMissionToSupabase = (m: Mission) => ({
-  id: m.id,
-  client_id: m.clientId,
-  client_name: m.clientName,
-  name: m.name,
-  manager_id: m.managerId,
-  manager_collaborator_id: m.managerCollaboratorId,
-  billing_mode: m.billingMode,
-  type: m.type,
-  typology: m.typology,
-  country: m.country,
-  start_date: m.startDate,
-  end_date: m.endDate,
-  status: m.status,
-  forfait_amount_current_fy: m.forfaitAmountCurrentFY,
-  forfait_amount_next_fy: m.forfaitAmountNextFY,
-  success_fees_current_fy: m.successFeesCurrentFY,
-  success_fees_next_fy: m.successFeesNextFY,
-  active: m.active,
-  billing_overrides: m.billingOverrides,
-  internal_staffing: m.internalStaffing,
-  freelance_staffing: m.freelanceStaffing,
-  subcontractor_staffing: m.subcontractorStaffing,
-  customer_po: m.customerPo,
-  updated_at: new Date().toISOString()
-});
+const mapMissionToSupabase = (m: Mission) => {
+  const payload = {
+    id: nullableUuid(m.id),
+    client_id: nullableUuid(m.clientId),
+    client_name: m.clientName,
+    name: m.name,
+    manager_id: nullableUuid(m.managerId),
+    manager_collaborator_id: nullableUuid(m.managerCollaboratorId),
+    billing_mode: m.billingMode,
+    type: m.type,
+    typology: m.typology,
+    country: m.country,
+    start_date: m.startDate,
+    end_date: m.endDate,
+    status: m.status,
+    forfait_amount_current_fy: m.forfaitAmountCurrentFY,
+    forfait_amount_next_fy: m.forfaitAmountNextFY,
+    success_fees_current_fy: m.successFeesCurrentFY,
+    success_fees_next_fy: m.successFeesNextFY,
+    active: m.active,
+    billing_overrides: m.billingOverrides,
+    internal_staffing: m.internalStaffing,
+    freelance_staffing: m.freelanceStaffing,
+    subcontractor_staffing: m.subcontractorStaffing,
+    customer_po: m.customerPo,
+    updated_at: new Date().toISOString()
+  };
+
+  if (!payload.id) {
+    // If ID is not a UUID, we must NOT send it to Supabase if the column is UUID
+    // However, if we're creating a new mission, we should let Supabase generate it or provided a valid one
+    // But since the frontend uses this for upsert, we need a valid UUID.
+    // The error 22P02 confirms it's a UUID column.
+    console.warn(`Mission ${m.name} has invalid UUID: ${m.id}. It will likely fail sync.`);
+  }
+
+  return payload;
+};
 
 const mapSupabaseToMission = (m: any): Mission => ({
   id: m.id,
@@ -122,10 +144,10 @@ const mapSupabaseToMission = (m: any): Mission => ({
 });
 
 const mapPlanningToSupabase = (p: PlanningEntry) => ({
-  id: p.id,
-  mission_id: p.missionId,
-  user_id: p.userId,
-  collaborator_id: p.collaboratorId,
+  id: nullableUuid(p.id),
+  mission_id: nullableUuid(p.missionId),
+  user_id: nullableUuid(p.userId),
+  collaborator_id: nullableUuid(p.collaboratorId),
   external_name: p.externalName,
   external_type: p.externalType,
   week_start: p.weekStart,
@@ -155,10 +177,10 @@ const mapSupabaseToPlanning = (p: any): PlanningEntry => ({
 });
 
 const mapTimesheetToSupabase = (t: TimesheetEntry) => ({
-  id: t.id,
-  user_id: t.userId,
-  collaborator_id: t.collaboratorId,
-  mission_id: t.missionId,
+  id: nullableUuid(t.id),
+  user_id: nullableUuid(t.userId),
+  collaborator_id: nullableUuid(t.collaboratorId),
+  mission_id: nullableUuid(t.missionId),
   week_start: t.weekStart,
   day_index: t.dayIndex,
   percentage: t.percentage,
@@ -186,10 +208,18 @@ const parseCSVDate = (dateStr: string): string => {
 };
 
 export const syncMissionToCloud = async (mission: Mission) => {
+  const payload = mapMissionToSupabase(mission);
   try {
-    await supabase.from('missions').upsert(mapMissionToSupabase(mission));
+    const { error } = await supabase.from('missions').upsert(payload);
+    if (error) {
+      console.error('Supabase Mission sync failed:', {
+        error,
+        payload,
+        mission
+      });
+    }
   } catch (e) {
-    console.error('Supabase Mission sync failed', e);
+    console.error('Supabase Mission sync exception:', e);
   }
 };
 
@@ -341,15 +371,13 @@ export const syncStateToCloud = async (state: AppState) => {
       });
     }
 
-    // Collaborators & Missions
+    // Collaborators
     if (state.collaborators.length > 0) {
       const collaboratorsData = state.collaborators.slice(0, 100).map(c => mapCollaboratorToSupabase(c));
       await supabase.from('collaborators').upsert(collaboratorsData);
     }
-    if (state.missions.length > 0) {
-      const missionsData = state.missions.slice(0, 100).map(m => mapMissionToSupabase(m));
-      await supabase.from('missions').upsert(missionsData);
-    }
+    // Missions massive sync removed to prevent 400 errors and avoid redundant heavy updates.
+    // Targeted syncs are handled in Missions.tsx via syncMissionToCloud.
   } catch (e) {
     console.error('Supabase bulk sync failed', e);
   }

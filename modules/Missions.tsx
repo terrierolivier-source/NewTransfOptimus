@@ -24,7 +24,8 @@ import {
   syncMissionToCloud, 
   syncPlanningToCloud, 
   deleteMissionFromCloud, 
-  deletePlanningEntriesForMission 
+  deletePlanningEntriesForMission,
+  isValidUuid
 } from '../services/dataService';
 import { MISSION_TYPES, TYPOLOGIES } from '../constants';
 import { 
@@ -265,11 +266,16 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
     e.preventDefault();
     if (!editingMission) return;
 
-    const missionId = editingMission.id || generateId();
+    const missionId = (editingMission.id && isValidUuid(editingMission.id)) 
+      ? editingMission.id 
+      : crypto.randomUUID();
+
     const finalMission: Mission = {
       ...editingMission,
       id: missionId,
-      clientId: editingMission.clientId || generateId(),
+      clientId: (editingMission.clientId && isValidUuid(editingMission.clientId)) 
+        ? editingMission.clientId 
+        : crypto.randomUUID(),
       active: true,
       internalStaffing,
       freelanceStaffing,
