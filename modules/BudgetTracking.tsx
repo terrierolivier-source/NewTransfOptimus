@@ -42,7 +42,8 @@ import {
   Hash,
   Trash
 } from 'lucide-react';
-import { getFiscalYear, generateId, getBusinessDays, calculateMonthlySmoothedRevenue, calculateTotalMissionRevenue } from '../utils';
+import { getFiscalYear, generateId, getBusinessDays, calculateMonthlySmoothedRevenue, calculateTotalMissionRevenue, calculateSmoothedMissionRevenue } from '../utils';
+import { syncMissionToCloud } from '../services/dataService';
 
 interface BudgetTrackingProps {
   state: AppState;
@@ -268,7 +269,7 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
     return totals;
   }, [billingRows]);
 
-  const handleUpdateAmount = (missionId: string, monthId: number, value: string) => {
+  const handleUpdateAmount = async (missionId: string, monthId: number, value: string) => {
     if (isGlobalView) return;
     const cleanValue = value.replace(/[^\d-]/g, '');
     if (cleanValue === '-' || cleanValue === '') return;
@@ -279,15 +280,58 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
 
     const newOverrides = { ...(mission.billingOverrides || {}) };
     if (!newOverrides[globalFY]) newOverrides[globalFY] = {};
+
+    // Freeze logic: to ensure "somme des montants mensuels" is the new truth
+    // we need to lock all months of this mission in this FY to their current estimated values
+    // if they don't have an override yet.
+    const mStart = parseISO(mission.startDate);
+    const mEnd = parseISO(mission.endDate);
+    const amountPerMonth = calculateMonthlySmoothedRevenue(mission);
+    const fyYearInt = parseInt(globalFY.replace('FY', ''));
+
+    MONTHS.forEach((m) => {
+      const targetMonthDate = new Date(m.id === 0 ? fyYearInt + 1 : fyYearInt, m.id, 15);
+      if (isWithinInterval(targetMonthDate, { start: startOfMonth(mStart), end: endOfMonth(mEnd) })) {
+        if (newOverrides[globalFY][m.id] === undefined) {
+          newOverrides[globalFY][m.id] = { amount: amountPerMonth, isValidated: false };
+        }
+      }
+    });
+
+    // Apply actual change
     const existing = newOverrides[globalFY][monthId] || { amount: 0, isValidated: false };
     newOverrides[globalFY][monthId] = { ...existing, amount };
 
+    // Recalculate total for this FY based on overrides ONLY (since we just froze others)
+    const monthsIds = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0];
+    const newFyTotal = monthsIds.reduce((acc, mid) => acc + (newOverrides[globalFY][mid]?.amount || 0), 0);
+
+    let updatedMission = { ...mission, billingOverrides: newOverrides };
+    
+    const actualFYStr = getFiscalYear(new Date());
+    const actualYear = parseInt(actualFYStr.replace('FY', ''));
+    const nextFYStr = `FY${actualYear + 1}`;
+
+    if (globalFY === actualFYStr) {
+       updatedMission.forfaitAmountCurrentFY = newFyTotal;
+       updatedMission.successFeesCurrentFY = 0;
+    } else if (globalFY === nextFYStr) {
+       updatedMission.forfaitAmountNextFY = newFyTotal;
+       updatedMission.successFeesNextFY = 0;
+    }
+
     updateState({ 
-        missions: missions.map(m => m.id === missionId ? { ...m, billingOverrides: newOverrides } : m) 
+        missions: missions.map(m => m.id === missionId ? updatedMission : m) 
     });
+
+    try {
+      await syncMissionToCloud(updatedMission);
+    } catch (e) {
+      console.error(`Error syncing mission amount update for ${mission.name}:`, e);
+    }
   };
 
-  const toggleValidation = (missionId: string, monthId: number) => {
+  const toggleValidation = async (missionId: string, monthId: number) => {
     if (isGlobalView) return;
     const mission = missions.find(m => m.id === missionId);
     if (!mission) return;
@@ -299,10 +343,18 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
     const newOverrides = { ...(mission.billingOverrides || {}) };
     if (!newOverrides[globalFY]) newOverrides[globalFY] = {};
     newOverrides[globalFY][monthId] = { ...currentVal, isValidated: !currentVal.isValidated };
-    updateState({ missions: missions.map(m => m.id === missionId ? { ...m, billingOverrides: newOverrides } : m) });
+    
+    const updatedMission = { ...mission, billingOverrides: newOverrides };
+    updateState({ missions: missions.map(m => m.id === missionId ? updatedMission : m) });
+
+    try {
+      await syncMissionToCloud(updatedMission);
+    } catch (e) {
+      console.error(`Error syncing mission validation toggle for ${mission.name}:`, e);
+    }
   };
 
-  const handleUpdateComment = () => {
+  const handleUpdateComment = async () => {
     if (!activeCommentCell || isGlobalView) return;
     const { type, id, monthId, currentComment } = activeCommentCell;
 
@@ -315,7 +367,15 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
         const newOverrides = { ...(mission.billingOverrides || {}) };
         if (!newOverrides[globalFY]) newOverrides[globalFY] = {};
         newOverrides[globalFY][monthId] = { ...currentVal, comment: currentComment };
-        updateState({ missions: missions.map(m => m.id === id ? { ...m, billingOverrides: newOverrides } : m) });
+        
+        const updatedMission = { ...mission, billingOverrides: newOverrides };
+        updateState({ missions: missions.map(m => m.id === id ? updatedMission : m) });
+
+        try {
+          await syncMissionToCloud(updatedMission);
+        } catch (e) {
+          console.error(`Error syncing mission comment update for ${mission.name}:`, e);
+        }
       }
     } else {
       const countryKey = globalCountry as string;
@@ -343,12 +403,23 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
     setActiveCommentCell(null);
   };
 
-  const handleUpdatePo = () => {
+  const handleUpdatePo = async () => {
     if (!activePoMissionId) return;
+    const mission = missions.find(m => m.id === activePoMissionId);
+    if (!mission) return;
+
+    const updatedMission = { ...mission, customerPo: tempPo.trim() || undefined };
     const updatedMissions = missions.map(m => 
-      m.id === activePoMissionId ? { ...m, customerPo: tempPo.trim() || undefined } : m
+      m.id === activePoMissionId ? updatedMission : m
     );
     updateState({ missions: updatedMissions });
+    
+    try {
+      await syncMissionToCloud(updatedMission);
+    } catch (e) {
+      console.error(`Error syncing mission PO update for ${mission.name}:`, e);
+    }
+    
     setActivePoMissionId(null);
   };
 
