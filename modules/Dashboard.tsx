@@ -23,9 +23,17 @@ interface DashboardProps {
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ state }) => {
-  const { missions, planning, timesheets, users, globalCountry, globalFY, budgetValues, holidays, manualExpenses } = state;
+  const { missions, planning, timesheets, collaborators, globalCountry, globalFY, budgetValues, holidays, manualExpenses } = state;
   const today = startOfToday();
   const [selectedTypology, setSelectedTypology] = useState<string | null>(null);
+
+  // Helper pour identifier les collaborateurs opérationnels éligibles pour le Dashboard
+  const OPERATIONAL_GRADES = ["consultant", "delivery manager", "principal"];
+  const isOperationalCollaborator = (c: any) => {
+    if (!c || !c.active || !c.grade) return false;
+    const normalizedGrade = String(c.grade).trim().toLowerCase();
+    return OPERATIONAL_GRADES.includes(normalizedGrade);
+  };
 
   // Helper pour formater avec le point comme séparateur de milliers (standard européen/allemand)
   const formatNumberWithDots = (val: number) => 
@@ -37,9 +45,9 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
     [missions, globalCountry]
   );
 
-  const filteredUsersForStats = useMemo(() => 
-    users.filter(u => (globalCountry === 'Global' || u.country === globalCountry)),
-    [users, globalCountry]
+  const filteredCollaboratorsForStats = useMemo(() => 
+    collaborators.filter(c => (globalCountry === 'Global' || c.country === globalCountry)),
+    [collaborators, globalCountry]
   );
 
   // --- CALCULS DE RENTABILITÉ ---
@@ -59,12 +67,13 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
       
       // 1. STAFFING INTERNE
       (m.internalStaffing || []).forEach(row => {
-        const user = users.find(u => u.id === row.userId);
-        const cjm = row.cjm || user?.cjm || 500;
-        const mUserTS = timesheets.filter(t => t.missionId === m.id && t.userId === row.userId && t.status === 'Validé');
+        const collabId = row.collaboratorId || row.userId;
+        const collab = collaborators.find(c => c.id === collabId);
+        const cjm = row.cjm || collab?.cjm || 500;
+        const mCollabTS = timesheets.filter(t => t.missionId === m.id && (t.collaboratorId === collabId || t.userId === collabId) && t.status === 'Validé');
         
         // RÉEL (Basé sur les timesheets validées)
-        mUserTS.forEach(ts => {
+        mCollabTS.forEach(ts => {
           const tsWeekStart = parseISO(ts.weekStart);
           const tsDate = startOfDay(addDays(tsWeekStart, ts.dayIndex));
           const cost = (ts.percentage / 100) * cjm;
@@ -83,7 +92,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
             const weeks = eachWeekOfInterval({ start, end }, { weekStartsOn: 1 });
             weeks.forEach(wStart => {
               const weekKey = format(wStart, 'yyyy-MM-dd');
-              if (!mUserTS.some(t => t.weekStart === weekKey)) {
+              if (!mCollabTS.some(t => t.weekStart === weekKey)) {
                 const wEnd = endOfWeek(wStart, { weekStartsOn: 1 });
                 // Intersection Semaine / Mission / FY
                 const overlapStart = max([wStart, start, fyStart]);
@@ -199,7 +208,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
         margin: totalMargin 
       };
     });
-  }, [filteredMissions, timesheets, planning, users, holidays, globalFY, manualExpenses]);
+  }, [filteredMissions, timesheets, planning, collaborators, holidays, globalFY, manualExpenses]);
 
   // --- FILTRAGE PAR FY SÉLECTIONNÉ (Corrigé pour inclure tout impact financier et temporel) ---
   const missionsForSelectedFY = useMemo(() => {
@@ -269,9 +278,8 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
   }, [portfolioWeightedMargin]);
 
   const avgOccupancy = useMemo(() => {
-    const targetRoles = [Role.CONSULTANT, Role.DELIVERY_MANAGER, Role.PRINCIPAL];
-    const eligibleUsers = filteredUsersForStats.filter(u => targetRoles.includes(u.grade) && u.active);
-    if (eligibleUsers.length === 0) return 0;
+    const eligibleCollaborators = filteredCollaboratorsForStats.filter(isOperationalCollaborator);
+    if (eligibleCollaborators.length === 0) return 0;
 
     const fyYear = parseInt(globalFY.replace('FY', ''));
     const fyStart = startOfDay(new Date(fyYear, 1, 1));
@@ -281,18 +289,18 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
     let globalSumOfAverages = 0;
     let validUsersCount = 0;
 
-    eligibleUsers.forEach(user => {
-      const joiningDate = user.joiningDate ? parseISO(user.joiningDate) : startOfDay(new Date(2020, 0, 1));
-      const leavingDate = user.leavingDate ? parseISO(user.leavingDate) : fyEnd;
+    eligibleCollaborators.forEach(collab => {
+      const joiningDate = collab.joiningDate ? parseISO(collab.joiningDate) : startOfDay(new Date(2020, 0, 1));
+      const leavingDate = collab.leavingDate ? parseISO(collab.leavingDate) : fyEnd;
       const userEffectiveStart = isAfter(joiningDate, fyStart) ? startOfDay(joiningDate) : fyStart;
       const userEffectiveEnd = isBefore(leavingDate, ytdEnd) ? endOfDay(leavingDate) : ytdEnd;
       if (isAfter(userEffectiveStart, userEffectiveEnd)) return;
-      const bDays = getBusinessDays(userEffectiveStart, userEffectiveEnd, holidays, user.country);
+      const bDays = getBusinessDays(userEffectiveStart, userEffectiveEnd, holidays, collab.country);
       if (bDays.length === 0) return;
 
       validUsersCount++;
-      const userPlanning = planning.filter(p => p.userId === user.id);
-      const userTimesheets = timesheets.filter(t => t.userId === user.id);
+      const userPlanning = planning.filter(p => p.collaboratorId === collab.id || p.userId === collab.id);
+      const userTimesheets = timesheets.filter(t => t.collaboratorId === collab.id || t.userId === collab.id);
       let userTotalPercentage = 0;
 
       bDays.forEach(day => {
@@ -309,7 +317,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
       globalSumOfAverages += (userTotalPercentage / bDays.length);
     });
     return validUsersCount > 0 ? globalSumOfAverages / validUsersCount : 0;
-  }, [filteredUsersForStats, planning, timesheets, holidays, globalFY, today]);
+  }, [filteredCollaboratorsForStats, planning, timesheets, holidays, globalFY, today]);
 
   const occupancyStatus = useMemo(() => {
     if (avgOccupancy < 50) return { label: 'SOUS-CHARGE CRITIQUE', color: 'text-red-600', bg: 'bg-red-50', bar: 'bg-red-500' };
@@ -318,15 +326,14 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
   }, [avgOccupancy]);
 
   const interContratHorizons = useMemo(() => {
-    const targetRoles = [Role.CONSULTANT, Role.DELIVERY_MANAGER, Role.PRINCIPAL];
-    const eligibleUsers = filteredUsersForStats.filter(u => targetRoles.includes(u.grade) && u.active);
+    const eligibleCollaborators = filteredCollaboratorsForStats.filter(isOperationalCollaborator);
     
     return [4, 8, 12].map(weeks => {
       const targetDate = addDays(today, weeks * 7);
       const targetMonday = format(startOfWeek(targetDate, { weekStartsOn: 1 }), 'yyyy-MM-dd');
       
-      const availableUsers = eligibleUsers.filter(user => {
-        const userPlanning = planning.filter(p => p.userId === user.id && p.weekStart === targetMonday && p.missionId !== 'INTERMISSION');
+      const availableUsers = eligibleCollaborators.filter(collab => {
+        const userPlanning = planning.filter(p => (p.collaboratorId === collab.id || p.userId === collab.id) && p.weekStart === targetMonday && p.missionId !== 'INTERMISSION');
         const totalPercentage = userPlanning.reduce((acc, p) => acc + p.percentage, 0);
         return totalPercentage === 0;
       });
@@ -337,7 +344,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
         userNames: availableUsers.map(u => `${u.firstName} ${u.lastName}`).sort()
       };
     });
-  }, [filteredUsersForStats, planning, today]);
+  }, [filteredCollaboratorsForStats, planning, today]);
 
   const missionCounts = useMemo(() => {
     // On ne compte que les missions qui ont un impact réel sur le CA ou coût du FY sélectionné
@@ -357,10 +364,9 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
   
   const monthlyStaffingData = useMemo(() => {
     const fyYear = parseInt(globalFY.replace('FY', ''));
-    const targetRoles = [Role.CONSULTANT, Role.DELIVERY_MANAGER, Role.PRINCIPAL];
-    const eligibleUsers = filteredUsersForStats.filter(u => targetRoles.includes(u.grade) && u.active);
+    const eligibleCollaborators = filteredCollaboratorsForStats.filter(isOperationalCollaborator);
     
-    if (eligibleUsers.length === 0) return [];
+    if (eligibleCollaborators.length === 0) return [];
 
     const monthList = [
       { id: 1, label: 'Fév' }, { id: 2, label: 'Mar' }, { id: 3, label: 'Avr' },
@@ -380,25 +386,25 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
       let totalCap = 0;
       let totalLoad = 0;
 
-      eligibleUsers.forEach(user => {
-        const joiningDate = user.joiningDate ? parseISO(user.joiningDate) : startOfDay(new Date(2000, 0, 1));
-        const leavingDate = user.leavingDate ? parseISO(user.leavingDate) : endOfDay(new Date(2100, 0, 1));
+      eligibleCollaborators.forEach(collab => {
+        const joiningDate = collab.joiningDate ? parseISO(collab.joiningDate) : startOfDay(new Date(2000, 0, 1));
+        const leavingDate = collab.leavingDate ? parseISO(collab.leavingDate) : endOfDay(new Date(2100, 0, 1));
         
         const effectiveStart = isAfter(joiningDate, start) ? joiningDate : start;
         const effectiveEnd = isBefore(leavingDate, end) ? leavingDate : end;
 
         if (!isAfter(effectiveStart, effectiveEnd)) {
-          const bDays = getBusinessDays(effectiveStart, effectiveEnd, holidays, user.country);
+          const bDays = getBusinessDays(effectiveStart, effectiveEnd, holidays, collab.country);
           if (bDays.length > 0) {
             totalCap += bDays.length * 100;
             bDays.forEach(day => {
               const monday = format(startOfWeek(day, { weekStartsOn: 1 }), 'yyyy-MM-dd');
               const dayIdx = (day.getDay() + 6) % 7;
               if (isBefore(day, today)) {
-                 const dayActuals = timesheets.filter(t => t.userId === user.id && t.weekStart === monday && t.dayIndex === dayIdx && t.status === 'Validé' && t.missionId !== 'INTERMISSION');
+                 const dayActuals = timesheets.filter(t => (t.collaboratorId === collab.id || t.userId === collab.id) && t.weekStart === monday && t.dayIndex === dayIdx && t.status === 'Validé' && t.missionId !== 'INTERMISSION');
                  totalLoad += dayActuals.reduce((acc, t) => acc + t.percentage, 0);
               } else {
-                 const dayPlans = planning.filter(p => p.userId === user.id && p.weekStart === monday && p.missionId !== 'INTERMISSION');
+                 const dayPlans = planning.filter(p => (p.collaboratorId === collab.id || p.userId === collab.id) && p.weekStart === monday && p.missionId !== 'INTERMISSION');
                  totalLoad += dayPlans.reduce((acc, p) => acc + p.percentage, 0);
               }
             });
@@ -413,7 +419,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
         isYTD: isPastOrCurrent
       };
     });
-  }, [filteredUsersForStats, planning, timesheets, holidays, globalFY, today]);
+  }, [filteredCollaboratorsForStats, planning, timesheets, holidays, globalFY, today]);
 
   const currentMonthLabel = useMemo(() => {
     const monthList = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
@@ -443,42 +449,50 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
   }, [missionsForSelectedFY, globalFY]);
 
   const alerts = useMemo(() => {
-    const activeUsers = users.filter(u => u.active && (globalCountry === 'Global' || u.country === globalCountry));
+    const eligibleCollaborators = collaborators.filter(c => c.active && (globalCountry === 'Global' || c.country === globalCountry) && isOperationalCollaborator(c));
     const lowMargin = missionMetrics.filter(m => m.margin < 5 && m.totalRevenue > 0);
-    const noStaffing = filteredMissions.filter(m => m.status === MissionStatus.EN_COURS && !planning.some(p => p.missionId === m.id));
-    const lateTimesheets = activeUsers.filter(u => {
-      if (![Role.CONSULTANT, Role.DELIVERY_MANAGER, Role.PRINCIPAL].includes(u.grade)) return false;
-      
+    
+    // Mission sans staffing: Une mission en cours doit avoir au moins un collaborateur éligible staffé
+    const noStaffing = filteredMissions.filter(m => {
+      if (m.status !== MissionStatus.EN_COURS) return false;
+      const staffings = planning.filter(p => p.missionId === m.id && p.percentage > 0);
+      return !staffings.some(p => {
+        const collab = collaborators.find(c => c.id === (p.collaboratorId || p.userId));
+        return isOperationalCollaborator(collab);
+      });
+    });
+
+    const lateTimesheets = eligibleCollaborators.filter(collab => {
       const fyYear = parseInt(globalFY.replace('FY', ''));
-      const startRange = startOfDay(new Date(fyYear, 1, 1)); // 1er jour de l'année FY
-      const endRange = startOfDay(addDays(today, -7)); // Jusqu'à J-7
+      const startRange = startOfDay(new Date(fyYear, 1, 1)); 
+      const endRange = startOfDay(addDays(today, -7)); 
       
-      let userJoining = startOfDay(new Date(2000, 0, 1));
-      if (u.joiningDate) {
-        const parsed = parseISO(u.joiningDate);
-        if (isValid(parsed)) userJoining = parsed;
+      let collabJoining = startOfDay(new Date(2000, 0, 1));
+      if (collab.joiningDate) {
+        const parsed = parseISO(collab.joiningDate);
+        if (isValid(parsed)) collabJoining = parsed;
       }
 
-      let userLeaving = endOfDay(new Date(2100, 0, 1));
-      if (u.leavingDate) {
-        const parsed = parseISO(u.leavingDate);
-        if (isValid(parsed)) userLeaving = parsed;
+      let collabLeaving = endOfDay(new Date(2100, 0, 1));
+      if (collab.leavingDate) {
+        const parsed = parseISO(collab.leavingDate);
+        if (isValid(parsed)) collabLeaving = parsed;
       }
       
-      const effectiveStart = isAfter(userJoining, startRange) ? startOfDay(userJoining) : startRange;
-      const effectiveEnd = isBefore(userLeaving, endRange) ? endOfDay(userLeaving) : endRange;
+      const effectiveStart = isAfter(collabJoining, startRange) ? startOfDay(collabJoining) : startRange;
+      const effectiveEnd = isBefore(collabLeaving, endRange) ? endOfDay(collabLeaving) : endRange;
       
       if (isAfter(effectiveStart, effectiveEnd)) return false;
       
-      const bDays = getBusinessDays(effectiveStart, effectiveEnd, holidays, u.country);
+      const bDays = getBusinessDays(effectiveStart, effectiveEnd, holidays, collab.country);
       if (bDays.length === 0) return false;
       
-      const userTS = timesheets.filter(t => t.userId === u.id && t.status === TimesheetStatus.VALIDE);
+      const collabTS = timesheets.filter(t => (t.collaboratorId === collab.id || t.userId === collab.id) && t.status === TimesheetStatus.VALIDE);
       
       return bDays.some(day => {
         const monday = format(startOfWeek(day, { weekStartsOn: 1 }), 'yyyy-MM-dd');
         const dayIdx = (day.getDay() + 6) % 7;
-        const dayTotal = userTS
+        const dayTotal = collabTS
           .filter(t => t.weekStart === monday && t.dayIndex === dayIdx)
           .reduce((acc, t) => acc + t.percentage, 0);
         return dayTotal < 100;
@@ -486,7 +500,6 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
     });
     
     const lowMoodConsultants: any[] = [];
-    const targetRoles = [Role.CONSULTANT, Role.DELIVERY_MANAGER, Role.PRINCIPAL];
     const processedUsers = new Set<string>();
 
     filteredMissions.forEach(m => {
@@ -496,16 +509,17 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
       const lowMoodEntries = missionPlanning.filter(p => p.sentiment && ['😐', '😟', '😡'].includes(p.sentiment));
       
       lowMoodEntries.forEach(entry => {
-        const user = users.find(u => u.id === entry.userId);
-        if (user && targetRoles.includes(user.grade) && !processedUsers.has(`${m.id}-${user.id}`)) {
+        const collabId = entry.collaboratorId || entry.userId;
+        const collab = collaborators.find(c => c.id === collabId);
+        if (collab && isOperationalCollaborator(collab) && !processedUsers.has(`${m.id}-${collab.id}`)) {
           lowMoodConsultants.push({
-            ...user,
+            ...collab,
             missionId: m.id,
             clientName: m.clientName,
             missionName: m.name,
             sentiment: entry.sentiment
           });
-          processedUsers.add(`${m.id}-${user.id}`);
+          processedUsers.add(`${m.id}-${collab.id}`);
         }
       });
     });
@@ -513,25 +527,27 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
     const badWeatherMissions: any[] = [];
     filteredMissions.forEach(m => {
       const missionPlanning = planning.filter(p => p.missionId === m.id);
-      const badWeatherUserIds = new Set(
+      const badWeatherCollabIds = new Set(
         missionPlanning
           .filter(p => p.weather === 'rain' || p.weather === 'storm')
-          .map(p => p.userId)
+          .map(p => p.collaboratorId || p.userId)
       );
       
-      badWeatherUserIds.forEach(userId => {
-        const user = users.find(u => u.id === userId);
-        const userName = user ? `${user.firstName} ${user.lastName}` : 'Intervenant inconnu';
+      badWeatherCollabIds.forEach(collabId => {
+        const collab = collaborators.find(c => c.id === collabId);
+        if (!collab || !isOperationalCollaborator(collab)) return;
+
+        const collabName = `${collab.firstName} ${collab.lastName}`;
         badWeatherMissions.push({
-          id: `badweather-${m.id}-${userId}`,
+          id: `badweather-${m.id}-${collabId}`,
           clientName: m.clientName,
-          name: `${m.name} (${userName})`,
+          name: `${m.name} (${collabName})`,
           weather: 'storm'
         });
       });
     });
     return { lowMargin, noStaffing, lateTimesheets, lowMoodConsultants, badWeatherMissions };
-  }, [missionMetrics, filteredMissions, planning, timesheets, users, today, globalCountry, globalFY]);
+  }, [missionMetrics, filteredMissions, planning, timesheets, collaborators, today, globalCountry, globalFY, holidays]);
 
   const detailedMissions = useMemo(() => {
     if (!selectedTypology) return [];
