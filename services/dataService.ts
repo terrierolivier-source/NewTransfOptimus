@@ -162,8 +162,9 @@ const mapSupabaseToMission = (m: any): Mission => ({
 const mapPlanningToSupabase = (p: PlanningEntry) => {
   const payload: any = {
     mission_id: nullableUuid(p.missionId),
-    user_id: nullableUuid(p.userId),
-    collaborator_id: nullableUuid(p.collaboratorId),
+    // Force user_id to null because public.users is no longer the source for planning
+    user_id: null,
+    collaborator_id: nullableUuid(p.collaboratorId || p.userId), // Fallback to userId if collaboratorId is missing in state
     external_name: p.externalName,
     external_type: p.externalType,
     week_start: p.weekStart,
@@ -187,7 +188,7 @@ const mapPlanningToSupabase = (p: PlanningEntry) => {
 const mapSupabaseToPlanning = (p: any): PlanningEntry => ({
   id: p.id,
   missionId: p.mission_id,
-  userId: p.user_id,
+  userId: p.user_id || p.collaborator_id, // Fallback for frontend logic
   collaboratorId: p.collaborator_id || '',
   externalName: p.external_name,
   externalType: p.external_type,
@@ -202,8 +203,9 @@ const mapSupabaseToPlanning = (p: any): PlanningEntry => ({
 
 const mapTimesheetToSupabase = (t: TimesheetEntry) => {
   const payload: any = {
-    user_id: nullableUuid(t.userId),
-    collaborator_id: nullableUuid(t.collaboratorId),
+    // Force user_id to null because public.users is no longer the source for metadata
+    user_id: null,
+    collaborator_id: nullableUuid(t.collaboratorId || t.userId), // Fallback to userId if collaboratorId is missing in state
     mission_id: nullableUuid(t.missionId),
     week_start: t.weekStart,
     day_index: t.dayIndex,
@@ -223,7 +225,7 @@ const mapTimesheetToSupabase = (t: TimesheetEntry) => {
 
 const mapSupabaseToTimesheet = (t: any): TimesheetEntry => ({
   id: t.id,
-  userId: t.user_id,
+  userId: t.user_id || t.collaborator_id, // Fallback for frontend logic
   collaboratorId: t.collaborator_id || '',
   missionId: t.mission_id,
   weekStart: t.week_start,
@@ -295,11 +297,24 @@ export const deleteCollaboratorFromCloud = async (id: string) => {
   }
 };
 
+export const loadPlanningFromCloud = async (): Promise<PlanningEntry[]> => {
+  try {
+    const { data, error } = await supabase.from('planning').select('*');
+    if (error) {
+      console.error('Error loading planning from Supabase:', error);
+      return [];
+    }
+    return data ? data.map(p => mapSupabaseToPlanning(p)) : [];
+  } catch (e) {
+    console.error('Exception loading planning from Supabase:', e);
+    return [];
+  }
+};
+
 export const syncPlanningToCloud = async (planning: PlanningEntry[]) => {
   if (planning.length === 0) return;
   const data = planning.map(p => mapPlanningToSupabase(p));
   try {
-    // Chunking to avoid large payload limits if necessary
     const CHUNK_SIZE = 100;
     for (let i = 0; i < data.length; i += CHUNK_SIZE) {
       const chunk = data.slice(i, i + CHUNK_SIZE);

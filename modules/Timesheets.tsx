@@ -160,6 +160,7 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState }) => {
     const newEntry: TimesheetEntry = { 
         id: crypto.randomUUID(), 
         userId: selectedUserId, 
+        collaboratorId: selectedUserId,
         weekStart: entry.weekStart, 
         missionId: entry.missionId, 
         dayIndex: entry.dayIndex, 
@@ -180,6 +181,7 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState }) => {
       newTimesheets.push({ 
         id: crypto.randomUUID(), 
         userId: selectedUserId, 
+        collaboratorId: selectedUserId,
         weekStart: validatingEntry.weekStart, 
         missionId: validatingEntry.missionId, 
         dayIndex: validatingEntry.dayIndex, 
@@ -201,6 +203,7 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState }) => {
       const cancelEntry: TimesheetEntry = { 
         id: crypto.randomUUID(), 
         userId: selectedUserId, 
+        collaboratorId: selectedUserId,
         weekStart: entry.weekStart, 
         missionId: entry.missionId, 
         dayIndex: entry.dayIndex, 
@@ -221,6 +224,7 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState }) => {
     const newEntry: TimesheetEntry = { 
       id: crypto.randomUUID(), 
       userId: selectedUserId, 
+      collaboratorId: selectedUserId,
       weekStart: weekKey, 
       missionId: typeId, 
       dayIndex: dayIndex, 

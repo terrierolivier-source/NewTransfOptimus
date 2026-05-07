@@ -25,7 +25,8 @@ import {
   syncPlanningToCloud, 
   deleteMissionFromCloud, 
   deletePlanningEntriesForMission,
-  isValidUuid
+  isValidUuid,
+  loadPlanningFromCloud
 } from '../services/dataService';
 import { MISSION_TYPES, TYPOLOGIES } from '../constants';
 import { 
@@ -305,7 +306,10 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
 
           newMissionPlanning.push({ 
             id: planningId, 
-            missionId, userId, weekStart: wKey, 
+            missionId, 
+            userId: userId, // Keep for legacy frontend logic if needed
+            collaboratorId: userId, // Correct mapping for the new schema
+            weekStart: wKey, 
             percentage: pct, tjm: tjm, costDay: cost,
             externalName: extName, externalType: extType,
             sentiment: existing?.sentiment, weather: existing?.weather, comment: existing?.comment
@@ -328,8 +332,16 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
     });
 
     // Robust Cloud Sync
-    syncMissionToCloud(finalMission);
-    syncPlanningToCloud(newMissionPlanning);
+    const performSync = async () => {
+        await syncMissionToCloud(finalMission);
+        await syncPlanningToCloud(newMissionPlanning);
+        // Refresh planning from cloud after save
+        const freshPlanning = await loadPlanningFromCloud();
+        if (freshPlanning.length > 0) {
+            updateState({ planning: freshPlanning });
+        }
+    };
+    performSync();
 
     setEditingMission(null);
   };

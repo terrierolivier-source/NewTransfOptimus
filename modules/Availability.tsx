@@ -46,6 +46,7 @@ import {
   Coffee
 } from 'lucide-react';
 import { getBusinessDays } from '../utils';
+import { syncPlanningToCloud } from '../services/dataService';
 
 interface AvailabilityProps {
   state: AppState;
@@ -265,11 +266,18 @@ const Availability: React.FC<AvailabilityProps> = ({ state, updateState }) => {
     setActiveFeedbackId(`${userId}|${missionId}`);
   };
 
-  const handleSaveFeedback = () => {
+  const handleSaveFeedback = async () => {
     if (!activeFeedbackId) return;
     const [userId, missionId] = activeFeedbackId.split('|');
     const updatedPlanning = state.planning.map(p => (p.userId === userId && p.missionId === missionId) ? { ...p, sentiment: tempSentiment, weather: tempWeather, comment: tempComment } : p);
     updateState({ planning: updatedPlanning });
+    
+    // Cloud Sync for specifically updated entries
+    const entriesToSync = updatedPlanning.filter(p => (p.userId === userId && p.missionId === missionId));
+    if (entriesToSync.length > 0) {
+      await syncPlanningToCloud(entriesToSync);
+    }
+    
     setActiveFeedbackId(null);
   };
 
