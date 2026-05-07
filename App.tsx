@@ -138,7 +138,7 @@ const App: React.FC = () => {
     <Layout
       activeModule={activeModule}
       setActiveModule={setActiveModule}
-      currentUser={state.currentUser || state.users[0]}
+      currentUser={state.currentUser || state.collaborators[0]}
       globalCountry={state.globalCountry}
       setGlobalCountry={(c) => updateState({ globalCountry: c })}
       globalFY={state.globalFY}

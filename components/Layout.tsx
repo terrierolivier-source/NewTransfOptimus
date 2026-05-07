@@ -44,13 +44,13 @@ const Layout: React.FC<LayoutProps> = ({
   onLogout
 }) => {
   const menuItems = [
-    { id: 'dashboard', label: 'Tableau de bord', icon: LayoutDashboard, permission: currentUser.permissions.dashboard },
-    { id: 'missions', label: 'Missions', icon: Briefcase, permission: currentUser.permissions.admin },
-    { id: 'planning', label: 'Planification', icon: CalendarRange, permission: currentUser.permissions.planning },
-    { id: 'availability', label: 'Disponibilité', icon: Users, permission: currentUser.permissions.availability },
-    { id: 'timesheets', label: 'Gestion des temps', icon: Clock, permission: currentUser.permissions.timesheets },
-    { id: 'budget_tracking', label: 'Suivi Budgétaire', icon: BadgeEuro, permission: currentUser.permissions.budget_tracking },
-    { id: 'admin', label: 'Administration', icon: Settings, permission: currentUser.permissions.admin },
+    { id: 'dashboard', label: 'Tableau de bord', icon: LayoutDashboard, permission: true },
+    { id: 'missions', label: 'Missions', icon: Briefcase, permission: true },
+    { id: 'planning', label: 'Planification', icon: CalendarRange, permission: true },
+    { id: 'availability', label: 'Disponibilité', icon: Users, permission: true },
+    { id: 'timesheets', label: 'Gestion des temps', icon: Clock, permission: true },
+    { id: 'budget_tracking', label: 'Suivi Budgétaire', icon: BadgeEuro, permission: true },
+    { id: 'admin', label: 'Administration', icon: Settings, permission: true },
   ];
 
   return (

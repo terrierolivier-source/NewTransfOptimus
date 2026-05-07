@@ -108,14 +108,15 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
 
         const intRows: InternalStaffing[] = Object.entries(groupedInternals).map(([userId, entries]) => {
           const dates = entries.map(e => parseISO(e.weekStart));
-          const user = state.users.find(u => u.id === userId);
+          const collaborator = state.collaborators.find(u => u.id === userId);
           return {
             id: generateId(),
             userId,
+            collaboratorId: userId,
             startDate: format(new Date(Math.min(...dates.map(d => d.getTime()))), 'yyyy-MM-dd'),
             endDate: format(new Date(Math.max(...dates.map(d => d.getTime()))), 'yyyy-MM-dd'),
             percentage: Math.round(entries.reduce((acc, e) => acc + e.percentage, 0) / entries.length),
-            cjm: entries[0].costDay || user?.cjm || 500,
+            cjm: entries[0].costDay || collaborator?.cjm || 500,
             tjm: entries[0].tjm || 800
           };
         });
@@ -147,8 +148,8 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
       const end = parseISO(row.endDate);
       if (!isValid(start) || !isValid(end)) return;
       
-      const userRef = state.users.find(u => u.id === row.userId);
-      const cjm = row.cjm || userRef?.cjm || 500;
+      const collaboratorRef = state.collaborators.find(u => u.id === row.userId || u.id === row.collaboratorId);
+      const cjm = row.cjm || collaboratorRef?.cjm || 500;
 
       if (!forceForecast) {
         // Logique "Réelle + Prév" : On somme les timesheets validées
@@ -337,7 +338,7 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
   };
 
   const getManagerName = (managerId: string) => {
-    const manager = state.users.find(u => u.id === managerId);
+    const manager = state.collaborators.find(u => u.id === managerId);
     return manager ? `${manager.firstName} ${manager.lastName}` : 'Inconnu';
   };
 
@@ -350,7 +351,7 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
     }
     if (typologyFilter !== 'All') result = result.filter(m => m.typology === typologyFilter);
     if (billingModeFilter !== 'All') result = result.filter(m => m.billingMode === billingModeFilter);
-    if (managerFilter !== 'All') result = result.filter(m => m.managerId === managerFilter);
+    if (managerFilter !== 'All') result = result.filter(m => m.managerCollaboratorId === managerFilter || m.managerId === managerFilter);
     if (statusFilter !== 'All') {
       if (statusFilter === 'Active') {
         result = result.filter(m => m.status === MissionStatus.EN_COURS || m.status === MissionStatus.NON_DEMARREE);
@@ -376,7 +377,8 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
         valA = calculateTotalMissionRevenue(a);
         valB = calculateTotalMissionRevenue(b);
       } else if (missionSortConfig.key === 'managerName') {
-        valA = getManagerName(a.managerId); valB = getManagerName(b.managerId);
+        valA = getManagerName(a.managerCollaboratorId || a.managerId || ''); 
+        valB = getManagerName(b.managerCollaboratorId || b.managerId || '');
       } else {
         valA = a[missionSortConfig.key as keyof Mission]; valB = b[missionSortConfig.key as keyof Mission];
       }
@@ -434,7 +436,7 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
                 </select>
                 <select className="text-[10px] font-bold border rounded-lg px-2 py-1 outline-none bg-white text-navy uppercase tracking-tighter" value={managerFilter} onChange={e => setManagerFilter(e.target.value)}>
                   <option value="All">Tous Responsables</option>
-                  {state.users.map(u => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
+                  {state.collaborators.map(u => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
                 </select>
               </div>
             </div>
@@ -457,7 +459,22 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
                 </div>
               </div>
               
-              <button onClick={() => setEditingMission({ name: '', clientName: '', billingMode: BillingMode.FORFAIT, status: MissionStatus.EN_COURS, startDate: format(new Date(), 'yyyy-MM-dd'), endDate: format(new Date(), 'yyyy-MM-dd'), country: Country.FRANCE, type: MISSION_TYPES[0], typology: TYPOLOGIES[0], managerId: state.users[0].id, forfaitAmountCurrentFY: 0, forfaitAmountNextFY: 0, successFeesCurrentFY: 0, successFeesNextFY: 0 })} className="bg-navy text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-navy/90 transition-all shadow-md active:scale-95 shrink-0"><Plus size={16} /> Nouvelle Mission</button>
+              <button onClick={() => setEditingMission({ 
+                name: '', 
+                clientName: '', 
+                billingMode: BillingMode.FORFAIT, 
+                status: MissionStatus.EN_COURS, 
+                startDate: format(new Date(), 'yyyy-MM-dd'), 
+                endDate: format(new Date(), 'yyyy-MM-dd'), 
+                country: Country.FRANCE, 
+                type: MISSION_TYPES[0], 
+                typology: TYPOLOGIES[0], 
+                managerCollaboratorId: state.collaborators[0]?.id || '',
+                forfaitAmountCurrentFY: 0, 
+                forfaitAmountNextFY: 0, 
+                successFeesCurrentFY: 0, 
+                successFeesNextFY: 0 
+              })} className="bg-navy text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-navy/90 transition-all shadow-md active:scale-95 shrink-0"><Plus size={16} /> Nouvelle Mission</button>
             </div>
           </div>
         </div>
@@ -506,7 +523,7 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
                     <td className="p-4 border-b group-last:border-0">
                       <div className="flex items-center gap-2">
                         <UserIcon size={12} className="text-gray-400" />
-                        <span className="text-[10px] font-bold text-navy uppercase truncate max-w-[100px]">{getManagerName(m.managerId)}</span>
+                        <span className="text-[10px] font-bold text-navy uppercase truncate max-w-[100px]">{getManagerName(m.managerCollaboratorId || m.managerId || '')}</span>
                       </div>
                     </td>
                     <td className="p-4 border-b group-last:border-0">
@@ -580,11 +597,11 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
                   <select 
                     required 
                     className="w-full border rounded-xl px-4 py-2.5 font-bold text-sm focus:ring-2 focus:ring-yellow-accent outline-none bg-white shadow-sm transition-all cursor-pointer" 
-                    value={editingMission.managerId} 
-                    onChange={e => setEditingMission({...editingMission, managerId: e.target.value})}
+                    value={editingMission.managerCollaboratorId || editingMission.managerId} 
+                    onChange={e => setEditingMission({...editingMission, managerCollaboratorId: e.target.value})}
                   >
                     <option value="">Sélectionner...</option>
-                    {state.users.map(u => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
+                    {state.collaborators.map(u => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
                   </select>
                 </div>
                 <div>
@@ -707,15 +724,16 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
                           <select className="w-full border-b-2 py-2 text-sm font-black text-navy outline-none focus:border-blue-500 transition-colors bg-transparent cursor-pointer" value={row.userId} onChange={e => {
                             const next = [...internalStaffing];
                             const idx = next.findIndex(item => item.id === row.id);
-                            const user = state.users.find(u => u.id === e.target.value);
+                            const collaborator = state.collaborators.find(u => u.id === e.target.value);
                             if (idx !== -1) {
                               next[idx].userId = e.target.value;
-                              if (user) next[idx].cjm = user.cjm; 
+                              next[idx].collaboratorId = e.target.value;
+                              if (collaborator) next[idx].cjm = collaborator.cjm; 
                               setInternalStaffing(next);
                             }
                           }}>
                             <option value="">Sélectionner...</option>
-                            {state.users.map(u => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
+                            {state.collaborators.map(u => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
                           </select>
                         </div>
                         <div className="grid grid-cols-2 gap-4">

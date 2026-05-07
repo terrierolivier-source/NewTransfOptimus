@@ -169,7 +169,7 @@ const Availability: React.FC<AvailabilityProps> = ({ state, updateState }) => {
   };
 
   const deliveryKpis = useMemo(() => {
-    const deliveryUsers = state.users.filter(u => 
+    const deliveryUsers = state.collaborators.filter(u => 
       u.active && 
       DELIVERY_GRADES.includes(u.grade) &&
       (state.globalCountry === 'Global' || u.country === state.globalCountry)
@@ -182,10 +182,10 @@ const Availability: React.FC<AvailabilityProps> = ({ state, updateState }) => {
       avg: totalOcc / deliveryUsers.length,
       count: deliveryUsers.length
     };
-  }, [state.users, state.globalCountry, period, state.planning, state.timesheets, state.holidays]);
+  }, [state.collaborators, state.globalCountry, period, state.planning, state.timesheets, state.holidays]);
 
   const filteredConsultants = useMemo(() => {
-    const list = state.users.filter(u => 
+    const list = state.collaborators.filter(u => 
       u.active && 
       (state.globalCountry === 'Global' || u.country === state.globalCountry) &&
       (selectedGrades.length === 0 || selectedGrades.includes(u.grade)) &&
@@ -193,7 +193,7 @@ const Availability: React.FC<AvailabilityProps> = ({ state, updateState }) => {
        u.lastName.toLowerCase().includes(searchTerm.toLowerCase()))
     );
     return [...list].sort((a, b) => getOccupancyForUserInPeriod(a) - getOccupancyForUserInPeriod(b));
-  }, [state.users, state.globalCountry, searchTerm, selectedGrades, period, state.planning, state.timesheets, state.holidays]);
+  }, [state.collaborators, state.globalCountry, searchTerm, selectedGrades, period, state.planning, state.timesheets, state.holidays]);
 
   const toggleGrade = (grade: Role) => {
     setSelectedGrades(prev => 
@@ -202,8 +202,8 @@ const Availability: React.FC<AvailabilityProps> = ({ state, updateState }) => {
   };
 
   const getStaffingForConsultant = (userId: string) => {
-    const userPlanning = state.planning.filter(p => p.userId === userId);
-    const userTimesheets = state.timesheets.filter(t => t.userId === userId);
+    const userPlanning = state.planning.filter(p => p.userId === userId || p.collaboratorId === userId);
+    const userTimesheets = state.timesheets.filter(t => t.userId === userId || t.collaboratorId === userId);
     
     const missionIds = Array.from(new Set([
       ...userPlanning.map(p => p.missionId),
@@ -232,7 +232,7 @@ const Availability: React.FC<AvailabilityProps> = ({ state, updateState }) => {
 
       let interventionEndDate = period.end;
       if (mission) {
-        const staffingRow = mission.internalStaffing?.find(s => s.userId === userId) || mission.freelanceStaffing?.find(f => f.id === userId);
+        const staffingRow = mission.internalStaffing?.find(s => s.userId === userId || s.collaboratorId === userId) || mission.freelanceStaffing?.find(f => f.id === userId);
         interventionEndDate = staffingRow ? parseISO(staffingRow.endDate) : parseISO(mission.endDate);
       }
 

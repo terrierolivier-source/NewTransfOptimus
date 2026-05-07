@@ -161,7 +161,7 @@ const Planning: React.FC<PlanningProps> = ({ state, updateState }) => {
       const start = parseISO(row.startDate);
       const end = parseISO(row.endDate);
       if (!isValid(start) || !isValid(end)) return;
-      const userRef = state.users.find(u => u.id === row.userId);
+      const userRef = state.collaborators.find(u => u.id === row.userId || u.id === row.collaboratorId);
       const cjm = row.cjm || userRef?.cjm || 500;
 
       const userReal = missionTimesheets.filter(t => t.userId === row.userId);
@@ -555,10 +555,10 @@ const Planning: React.FC<PlanningProps> = ({ state, updateState }) => {
               const barStyles = getBarStyles(m.startDate, m.endDate);
               const margin = calculateMissionMargin(m);
               const staff = state.planning.filter(p => p.missionId === m.id);
-              const uniqueStaff = Array.from(new Set(staff.map(s => s.userId))).map((id: string) => {
-                const pEntry = staff.find(s => s.userId === id);
-                const user = state.users.find(u => u.id === id);
-                return { id, name: pEntry?.externalName || (user ? `${user.firstName} ${user.lastName}` : 'Inconnu'), type: pEntry?.externalType };
+              const uniqueStaff = Array.from(new Set(staff.map(s => s.collaboratorId || s.userId))).map((id: string) => {
+                const pEntry = staff.find(s => s.userId === id || s.collaboratorId === id);
+                const collaborator = state.collaborators.find(u => u.id === id);
+                return { id, name: pEntry?.externalName || (collaborator ? `${collaborator.firstName} ${collaborator.lastName}` : 'Inconnu'), type: pEntry?.externalType };
               });
               
               const missionWarnings = getMissionWarnings(m);

@@ -48,32 +48,14 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState }) => {
   const [selectedUserId, setSelectedUserId] = useState(state.currentUser?.id || '');
   
   const selectableUsers = useMemo(() => {
-    const internalUsers = state.users.map(u => ({
-      id: u.id,
-      name: `${u.firstName} ${u.lastName}`,
-      role: u.grade,
-      country: u.country,
-      isExternal: false
-    }));
-
-    const activeMissions = state.missions.filter(m => m.status === MissionStatus.EN_COURS && m.active);
-    const freelancers: any[] = [];
-    activeMissions.forEach(m => {
-      m.freelanceStaffing?.forEach(f => {
-        if (!freelancers.find(existing => existing.id === f.id)) {
-          freelancers.push({
-            id: f.id,
-            name: `${f.firstName} ${f.lastName}`,
-            role: 'Freelance',
-            country: m.country, // On prend le pays de la mission par défaut
-            isExternal: true
-          });
-        }
-      });
-    });
-
-    return [...internalUsers, ...freelancers].sort((a, b) => a.name.localeCompare(b.name));
-  }, [state.users, state.missions]);
+    return state.collaborators.map(c => ({
+      id: c.id,
+      name: `${c.firstName} ${c.lastName}`,
+      role: c.grade,
+      country: c.country,
+      isExternal: c.collaboratorType !== 'internal'
+    })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [state.collaborators]);
 
   const [activeMenuDay, setActiveMenuDay] = useState<{ weekKey: string, dayIdx: number } | null>(null);
   const [validatingEntry, setValidatingEntry] = useState<any | null>(null);

@@ -1,4 +1,4 @@
-import { AppState, Country, Mission, MissionStatus, BillingMode, PlanningEntry, TimesheetEntry, InternalStaffing, ManualExpense, BudgetFamily, Holiday, User } from '../types';
+import { AppState, Country, Mission, MissionStatus, BillingMode, PlanningEntry, TimesheetEntry, InternalStaffing, ManualExpense, BudgetFamily, Holiday, User, Collaborator, CollaboratorType, Role } from '../types';
 import { parseCSVUsers, SEED_MISSIONS_RAW } from '../constants';
 import { getFiscalYear, generateId } from '../utils';
 import { startOfWeek, addWeeks, format, parseISO, isWithinInterval, eachWeekOfInterval } from 'date-fns';
@@ -37,12 +37,44 @@ const mapSupabaseToUser = (u: any): User => ({
   permissions: u.permissions
 });
 
+const mapCollaboratorToSupabase = (c: Collaborator) => ({
+  id: c.id,
+  email: c.email,
+  first_name: c.firstName,
+  last_name: c.lastName,
+  grade: c.grade,
+  country: c.country,
+  collaborator_type: c.collaboratorType,
+  active: c.active,
+  cjm: c.cjm,
+  joining_date: c.joiningDate,
+  leaving_date: c.leavingDate,
+  notes: c.notes,
+  updated_at: new Date().toISOString()
+});
+
+const mapSupabaseToCollaborator = (c: any): Collaborator => ({
+  id: c.id,
+  email: c.email,
+  firstName: c.first_name,
+  lastName: c.last_name,
+  grade: c.grade as Role,
+  country: c.country as Country,
+  collaboratorType: c.collaborator_type as CollaboratorType,
+  active: c.active,
+  cjm: c.cjm,
+  joiningDate: c.joining_date,
+  leavingDate: c.leaving_date,
+  notes: c.notes
+});
+
 const mapMissionToSupabase = (m: Mission) => ({
   id: m.id,
   client_id: m.clientId,
   client_name: m.clientName,
   name: m.name,
   manager_id: m.managerId,
+  manager_collaborator_id: m.managerCollaboratorId,
   billing_mode: m.billingMode,
   type: m.type,
   typology: m.typology,
@@ -69,6 +101,7 @@ const mapSupabaseToMission = (m: any): Mission => ({
   clientName: m.client_name,
   name: m.name,
   managerId: m.manager_id,
+  managerCollaboratorId: m.manager_collaborator_id || '',
   billingMode: m.billing_mode,
   type: m.type,
   typology: m.typology,
@@ -92,6 +125,7 @@ const mapPlanningToSupabase = (p: PlanningEntry) => ({
   id: p.id,
   mission_id: p.missionId,
   user_id: p.userId,
+  collaborator_id: p.collaboratorId,
   external_name: p.externalName,
   external_type: p.externalType,
   week_start: p.weekStart,
@@ -108,6 +142,7 @@ const mapSupabaseToPlanning = (p: any): PlanningEntry => ({
   id: p.id,
   missionId: p.mission_id,
   userId: p.user_id,
+  collaboratorId: p.collaborator_id || '',
   externalName: p.external_name,
   externalType: p.external_type,
   weekStart: p.week_start,
@@ -122,6 +157,7 @@ const mapSupabaseToPlanning = (p: any): PlanningEntry => ({
 const mapTimesheetToSupabase = (t: TimesheetEntry) => ({
   id: t.id,
   user_id: t.userId,
+  collaborator_id: t.collaboratorId,
   mission_id: t.missionId,
   week_start: t.weekStart,
   day_index: t.dayIndex,
@@ -134,6 +170,7 @@ const mapTimesheetToSupabase = (t: TimesheetEntry) => ({
 const mapSupabaseToTimesheet = (t: any): TimesheetEntry => ({
   id: t.id,
   userId: t.user_id,
+  collaboratorId: t.collaborator_id || '',
   missionId: t.mission_id,
   weekStart: t.week_start,
   dayIndex: t.day_index,
@@ -180,6 +217,22 @@ export const syncUserToCloud = async (user: User) => {
   }
 };
 
+export const syncCollaboratorToCloud = async (collaborator: Collaborator) => {
+  try {
+    await supabase.from('collaborators').upsert(mapCollaboratorToSupabase(collaborator));
+  } catch (e) {
+    console.error('Supabase Collaborator sync failed', e);
+  }
+};
+
+export const deleteCollaboratorFromCloud = async (id: string) => {
+  try {
+    await supabase.from('collaborators').delete().eq('id', id);
+  } catch (e) {
+    console.error('Supabase Collaborator delete failed', e);
+  }
+};
+
 export const syncPlanningToCloud = async (planning: PlanningEntry[]) => {
   if (planning.length === 0) return;
   try {
@@ -215,13 +268,23 @@ export const setupRealtimeSync = (
   // Supabase Real-time listeners
   const channel = supabase.channel(`db-realtime-${Date.now()}`)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, payload => {
-      const u = mapSupabaseToUser(payload.new);
+      const u = mapSupabaseToUser(payload.new || payload.old);
       setState(prev => {
         const index = prev.users.findIndex(old => old.id === u.id);
         const newUsers = index >= 0 
           ? prev.users.map(old => old.id === u.id ? u : old)
           : [...prev.users, u];
         return { ...prev, users: newUsers };
+      });
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'collaborators' }, payload => {
+      const c = mapSupabaseToCollaborator(payload.new || payload.old);
+      setState(prev => {
+        const index = prev.collaborators.findIndex(old => old.id === c.id);
+        const newCollaborators = index >= 0 
+          ? prev.collaborators.map(old => old.id === c.id ? c : old)
+          : [...prev.collaborators, c];
+        return { ...prev, collaborators: newCollaborators };
       });
     })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'missions' }, payload => {
@@ -278,10 +341,10 @@ export const syncStateToCloud = async (state: AppState) => {
       });
     }
 
-    // Users & Missions
-    if (state.users.length > 0) {
-      const usersData = state.users.slice(0, 100).map(u => mapUserToSupabase(u));
-      await supabase.from('users').upsert(usersData);
+    // Collaborators & Missions
+    if (state.collaborators.length > 0) {
+      const collaboratorsData = state.collaborators.slice(0, 100).map(c => mapCollaboratorToSupabase(c));
+      await supabase.from('collaborators').upsert(collaboratorsData);
     }
     if (state.missions.length > 0) {
       const missionsData = state.missions.slice(0, 100).map(m => mapMissionToSupabase(m));
@@ -306,6 +369,9 @@ export const loadStateFromCloud = async (): Promise<Partial<AppState>> => {
 
     const { data: missions } = await supabase.from('missions').select('*');
     if (missions) results.missions = missions.map(m => mapSupabaseToMission(m));
+
+    const { data: collaborators } = await supabase.from('collaborators').select('*');
+    if (collaborators) results.collaborators = collaborators.map(c => mapSupabaseToCollaborator(c));
 
     const { data: users } = await supabase.from('users').select('*');
     if (users) results.users = users.map(u => mapSupabaseToUser(u));
@@ -542,6 +608,7 @@ export const getInitialState = (): AppState => {
   
   return {
     users,
+    collaborators: [],
     missions,
     planning,
     timesheets: [],

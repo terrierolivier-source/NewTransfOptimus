@@ -56,9 +56,31 @@ export interface User {
   };
 }
 
+export enum CollaboratorType {
+  INTERNAL = 'internal',
+  FREELANCE = 'freelance',
+  SUBCONTRACTOR = 'subcontractor'
+}
+
+export interface Collaborator {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  grade: Role;
+  country: Country;
+  collaboratorType: CollaboratorType;
+  active: boolean;
+  cjm: number;
+  joiningDate: string;
+  leavingDate?: string;
+  notes?: string;
+}
+
 export interface InternalStaffing {
   id: string;
-  userId: string;
+  userId?: string;
+  collaboratorId: string;
   startDate: string;
   endDate: string;
   percentage: number;
@@ -117,7 +139,8 @@ export interface Mission {
   clientId: string;
   clientName: string;
   name: string;
-  managerId: string;
+  managerId?: string; // Keep for legacy if needed
+  managerCollaboratorId: string;
   billingMode: BillingMode;
   type: string;
   typology: string;
@@ -140,7 +163,8 @@ export interface Mission {
 export interface PlanningEntry {
   id: string;
   missionId: string;
-  userId: string; 
+  userId?: string; 
+  collaboratorId: string;
   externalName?: string; 
   externalType?: 'freelance' | 'subcontractor';
   weekStart: string; 
@@ -154,7 +178,8 @@ export interface PlanningEntry {
 
 export interface TimesheetEntry {
   id: string;
-  userId: string;
+  userId?: string;
+  collaboratorId: string;
   weekStart: string;
   missionId: string; 
   dayIndex: number; 
@@ -172,6 +197,7 @@ export interface Holiday {
 
 export interface AppState {
   users: User[];
+  collaborators: Collaborator[];
   missions: Mission[];
   planning: PlanningEntry[];
   timesheets: TimesheetEntry[];
