@@ -18,7 +18,8 @@ import {
   Calendar
 } from 'lucide-react';
 import { AppState, TimesheetEntry, TimesheetStatus, MissionStatus, Role } from '../types';
-import { getMonday, generateId } from '../utils';
+import { getMonday } from '../utils';
+import { syncTimesheetsToCloud, loadTimesheetsFromCloud, deleteTimesheetFromCloud } from '../services/dataService';
 import { addWeeks, addDays, format, isSameDay, parseISO, isWithinInterval } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
@@ -153,7 +154,7 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState }) => {
     setValidationComment(entry.comment || '');
   };
 
-  const handleQuickValidate = (e: React.MouseEvent, entry: any) => {
+  const handleQuickValidate = async (e: React.MouseEvent, entry: any) => {
     e.stopPropagation();
     const weekData = getWeekData(parseISO(entry.weekStart));
     if (!canEdit || weekData.isDayHoliday(weekData.weekDays[entry.dayIndex])) return;
@@ -168,17 +169,26 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState }) => {
         comment: '', 
         status: TimesheetStatus.VALIDE 
     };
-    updateState({ timesheets: [...state.timesheets, newEntry] });
+    
+    // Optimistic Update
+    const updatedTimesheets = [...state.timesheets, newEntry];
+    updateState({ timesheets: updatedTimesheets });
+    
+    // Cloud Sync
+    await syncTimesheetsToCloud([newEntry]);
   };
 
-  const handleConfirmValidation = () => {
+  const handleConfirmValidation = async () => {
     if (!validatingEntry) return;
     const numVal = Math.min(100, Math.max(0, validationPercentage));
     let newTimesheets = [...state.timesheets];
+    let entryToSync: TimesheetEntry;
+
     if (validatingEntry.isActual) {
-      newTimesheets = newTimesheets.map(t => t.id === validatingEntry.id ? { ...t, percentage: numVal, comment: validationComment, status: TimesheetStatus.VALIDE } : t);
+      entryToSync = { ...validatingEntry, percentage: numVal, comment: validationComment, status: TimesheetStatus.VALIDE };
+      newTimesheets = newTimesheets.map(t => t.id === validatingEntry.id ? entryToSync : t);
     } else {
-      newTimesheets.push({ 
+      entryToSync = { 
         id: crypto.randomUUID(), 
         userId: selectedUserId, 
         collaboratorId: selectedUserId,
@@ -188,17 +198,26 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState }) => {
         percentage: numVal, 
         comment: validationComment, 
         status: TimesheetStatus.VALIDE 
-      });
+      };
+      newTimesheets.push(entryToSync);
     }
+    
+    // Optimistic Update
     updateState({ timesheets: newTimesheets });
+    
+    // Cloud Sync
+    await syncTimesheetsToCloud([entryToSync]);
+    
     setValidatingEntry(null);
   };
 
-  const handleRemoveEntry = (e: React.MouseEvent, entry: any) => {
+  const handleRemoveEntry = async (e: React.MouseEvent, entry: any) => {
     e.stopPropagation();
     if (!canEdit) return;
+    
     if (entry.isActual) {
       updateState({ timesheets: state.timesheets.filter(t => t.id !== entry.id) });
+      await deleteTimesheetFromCloud(entry.id);
     } else {
       const cancelEntry: TimesheetEntry = { 
         id: crypto.randomUUID(), 
@@ -211,14 +230,14 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState }) => {
         status: TimesheetStatus.VALIDE 
       };
       updateState({ timesheets: [...state.timesheets, cancelEntry] });
+      await syncTimesheetsToCloud([cancelEntry]);
     }
   };
 
-  const handleAddEntry = (weekKey: string, dayIndex: number, typeId: string) => {
+  const handleAddEntry = async (weekKey: string, dayIndex: number, typeId: string) => {
     const weekData = getWeekData(parseISO(weekKey));
     if (!canEdit || weekData.isDayHoliday(weekData.weekDays[dayIndex])) return;
     
-    // Pour les activités internes, on propose 100% d'office pour faciliter la saisie
     const isInternal = CATEGORIES.some(c => c.id === typeId);
 
     const newEntry: TimesheetEntry = { 
@@ -233,9 +252,11 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState }) => {
     };
 
     updateState({ timesheets: [...state.timesheets, newEntry] });
-    setActiveMenuDay(null);
     
-    // Ouvre la modal pour permettre d'ajouter un commentaire (ex: destination ou motif)
+    // Sync to cloud
+    await syncTimesheetsToCloud([newEntry]);
+    
+    setActiveMenuDay(null);
     setValidatingEntry({ ...newEntry, isActual: true });
     setValidationPercentage(isInternal ? 100 : 0);
     setValidationComment('');

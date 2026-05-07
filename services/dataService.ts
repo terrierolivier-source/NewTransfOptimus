@@ -332,6 +332,20 @@ export const syncPlanningToCloud = async (planning: PlanningEntry[]) => {
   }
 };
 
+export const loadTimesheetsFromCloud = async (): Promise<TimesheetEntry[]> => {
+  try {
+    const { data, error } = await supabase.from('timesheets').select('*');
+    if (error) {
+      console.error('Error loading timesheets from Supabase:', error);
+      return [];
+    }
+    return data ? data.map(t => mapSupabaseToTimesheet(t)) : [];
+  } catch (e) {
+    console.error('Exception loading timesheets from Supabase:', e);
+    return [];
+  }
+};
+
 export const syncTimesheetsToCloud = async (entries: TimesheetEntry[]) => {
   if (entries.length === 0) return;
   const data = entries.map(e => mapTimesheetToSupabase(e));
@@ -409,6 +423,18 @@ export const setupRealtimeSync = (
   });
 
   return unsubs;
+};
+
+export const deleteTimesheetFromCloud = async (id: string) => {
+  if (!id) return;
+  try {
+    const { error } = await supabase.from('timesheets').delete().eq('id', id);
+    if (error) {
+      console.error('Error deleting timesheet from Supabase:', error);
+    }
+  } catch (e) {
+    console.error('Exception deleting timesheet from Supabase:', e);
+  }
 };
 
 export const syncStateToCloud = async (state: AppState) => {
