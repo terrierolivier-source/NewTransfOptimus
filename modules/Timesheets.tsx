@@ -158,7 +158,7 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState }) => {
     const weekData = getWeekData(parseISO(entry.weekStart));
     if (!canEdit || weekData.isDayHoliday(weekData.weekDays[entry.dayIndex])) return;
     const newEntry: TimesheetEntry = { 
-        id: generateId(), 
+        id: crypto.randomUUID(), 
         userId: selectedUserId, 
         weekStart: entry.weekStart, 
         missionId: entry.missionId, 
@@ -178,7 +178,7 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState }) => {
       newTimesheets = newTimesheets.map(t => t.id === validatingEntry.id ? { ...t, percentage: numVal, comment: validationComment, status: TimesheetStatus.VALIDE } : t);
     } else {
       newTimesheets.push({ 
-        id: generateId(), 
+        id: crypto.randomUUID(), 
         userId: selectedUserId, 
         weekStart: validatingEntry.weekStart, 
         missionId: validatingEntry.missionId, 
@@ -199,7 +199,7 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState }) => {
       updateState({ timesheets: state.timesheets.filter(t => t.id !== entry.id) });
     } else {
       const cancelEntry: TimesheetEntry = { 
-        id: generateId(), 
+        id: crypto.randomUUID(), 
         userId: selectedUserId, 
         weekStart: entry.weekStart, 
         missionId: entry.missionId, 
@@ -219,7 +219,7 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState }) => {
     const isInternal = CATEGORIES.some(c => c.id === typeId);
 
     const newEntry: TimesheetEntry = { 
-      id: generateId(), 
+      id: crypto.randomUUID(), 
       userId: selectedUserId, 
       weekStart: weekKey, 
       missionId: typeId, 

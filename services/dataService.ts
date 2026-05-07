@@ -16,21 +16,29 @@ export const nullableUuid = (value: string | null | undefined): string | null =>
   return isValidUuid(value) ? value! : null;
 };
 
-const mapUserToSupabase = (u: User) => ({
-  id: nullableUuid(u.id),
-  email: u.email,
-  first_name: u.firstName,
-  last_name: u.lastName,
-  grade: u.grade,
-  country: u.country,
-  is_admin: u.isAdmin,
-  active: u.active,
-  cjm: u.cjm,
-  joining_date: u.joiningDate,
-  leaving_date: u.leavingDate,
-  permissions: u.permissions,
-  updated_at: new Date().toISOString()
-});
+const mapUserToSupabase = (u: User) => {
+  const payload: any = {
+    email: u.email,
+    first_name: u.firstName,
+    last_name: u.lastName,
+    grade: u.grade,
+    country: u.country,
+    is_admin: u.isAdmin,
+    active: u.active,
+    cjm: u.cjm,
+    joining_date: u.joiningDate,
+    leaving_date: u.leavingDate,
+    permissions: u.permissions,
+    updated_at: new Date().toISOString()
+  };
+
+  const validId = nullableUuid(u.id);
+  if (validId) {
+    payload.id = validId;
+  }
+
+  return payload;
+};
 
 const mapSupabaseToUser = (u: any): User => ({
   id: u.id,
@@ -47,21 +55,29 @@ const mapSupabaseToUser = (u: any): User => ({
   permissions: u.permissions
 });
 
-const mapCollaboratorToSupabase = (c: Collaborator) => ({
-  id: nullableUuid(c.id),
-  email: c.email,
-  first_name: c.firstName,
-  last_name: c.lastName,
-  grade: c.grade,
-  country: c.country,
-  collaborator_type: c.collaboratorType,
-  active: c.active,
-  cjm: c.cjm,
-  joining_date: c.joiningDate,
-  leaving_date: c.leavingDate,
-  notes: c.notes,
-  updated_at: new Date().toISOString()
-});
+const mapCollaboratorToSupabase = (c: Collaborator) => {
+  const payload: any = {
+    email: c.email,
+    first_name: c.firstName,
+    last_name: c.lastName,
+    grade: c.grade,
+    country: c.country,
+    collaborator_type: c.collaboratorType,
+    active: c.active,
+    cjm: c.cjm,
+    joining_date: c.joiningDate,
+    leaving_date: c.leavingDate,
+    notes: c.notes,
+    updated_at: new Date().toISOString()
+  };
+
+  const validId = nullableUuid(c.id);
+  if (validId) {
+    payload.id = validId;
+  }
+
+  return payload;
+};
 
 const mapSupabaseToCollaborator = (c: any): Collaborator => ({
   id: c.id,
@@ -79,8 +95,7 @@ const mapSupabaseToCollaborator = (c: any): Collaborator => ({
 });
 
 const mapMissionToSupabase = (m: Mission) => {
-  const payload = {
-    id: nullableUuid(m.id),
+  const payload: any = {
     client_id: nullableUuid(m.clientId),
     client_name: m.clientName,
     name: m.name,
@@ -106,12 +121,13 @@ const mapMissionToSupabase = (m: Mission) => {
     updated_at: new Date().toISOString()
   };
 
+  const validId = nullableUuid(m.id);
+  if (validId) {
+    payload.id = validId;
+  }
+
   if (!payload.id) {
-    // If ID is not a UUID, we must NOT send it to Supabase if the column is UUID
-    // However, if we're creating a new mission, we should let Supabase generate it or provided a valid one
-    // But since the frontend uses this for upsert, we need a valid UUID.
-    // The error 22P02 confirms it's a UUID column.
-    console.warn(`Mission ${m.name} has invalid UUID: ${m.id}. It will likely fail sync.`);
+    console.warn(`Mission ${m.name} has invalid UUID: ${m.id}. It will likely be inserted as a new record.`);
   }
 
   return payload;
@@ -143,22 +159,30 @@ const mapSupabaseToMission = (m: any): Mission => ({
   customerPo: m.customer_po
 });
 
-const mapPlanningToSupabase = (p: PlanningEntry) => ({
-  id: nullableUuid(p.id),
-  mission_id: nullableUuid(p.missionId),
-  user_id: nullableUuid(p.userId),
-  collaborator_id: nullableUuid(p.collaboratorId),
-  external_name: p.externalName,
-  external_type: p.externalType,
-  week_start: p.weekStart,
-  percentage: p.percentage,
-  tjm: p.tjm,
-  cost_day: p.costDay,
-  sentiment: p.sentiment,
-  weather: p.weather,
-  comment: p.comment,
-  updated_at: new Date().toISOString()
-});
+const mapPlanningToSupabase = (p: PlanningEntry) => {
+  const payload: any = {
+    mission_id: nullableUuid(p.missionId),
+    user_id: nullableUuid(p.userId),
+    collaborator_id: nullableUuid(p.collaboratorId),
+    external_name: p.externalName,
+    external_type: p.externalType,
+    week_start: p.weekStart,
+    percentage: p.percentage,
+    tjm: p.tjm,
+    cost_day: p.costDay,
+    sentiment: p.sentiment,
+    weather: p.weather,
+    comment: p.comment,
+    updated_at: new Date().toISOString()
+  };
+
+  const validId = nullableUuid(p.id);
+  if (validId) {
+    payload.id = validId;
+  }
+
+  return payload;
+};
 
 const mapSupabaseToPlanning = (p: any): PlanningEntry => ({
   id: p.id,
@@ -176,18 +200,26 @@ const mapSupabaseToPlanning = (p: any): PlanningEntry => ({
   comment: p.comment
 });
 
-const mapTimesheetToSupabase = (t: TimesheetEntry) => ({
-  id: nullableUuid(t.id),
-  user_id: nullableUuid(t.userId),
-  collaborator_id: nullableUuid(t.collaboratorId),
-  mission_id: nullableUuid(t.missionId),
-  week_start: t.weekStart,
-  day_index: t.dayIndex,
-  percentage: t.percentage,
-  status: t.status,
-  comment: t.comment,
-  updated_at: new Date().toISOString()
-});
+const mapTimesheetToSupabase = (t: TimesheetEntry) => {
+  const payload: any = {
+    user_id: nullableUuid(t.userId),
+    collaborator_id: nullableUuid(t.collaboratorId),
+    mission_id: nullableUuid(t.missionId),
+    week_start: t.weekStart,
+    day_index: t.dayIndex,
+    percentage: t.percentage,
+    status: t.status,
+    comment: t.comment,
+    updated_at: new Date().toISOString()
+  };
+
+  const validId = nullableUuid(t.id);
+  if (validId) {
+    payload.id = validId;
+  }
+
+  return payload;
+};
 
 const mapSupabaseToTimesheet = (t: any): TimesheetEntry => ({
   id: t.id,
@@ -265,28 +297,44 @@ export const deleteCollaboratorFromCloud = async (id: string) => {
 
 export const syncPlanningToCloud = async (planning: PlanningEntry[]) => {
   if (planning.length === 0) return;
+  const data = planning.map(p => mapPlanningToSupabase(p));
   try {
-    const data = planning.map(p => mapPlanningToSupabase(p));
     // Chunking to avoid large payload limits if necessary
     const CHUNK_SIZE = 100;
     for (let i = 0; i < data.length; i += CHUNK_SIZE) {
-      await supabase.from('planning').upsert(data.slice(i, i + CHUNK_SIZE));
+      const chunk = data.slice(i, i + CHUNK_SIZE);
+      const { error } = await supabase.from('planning').upsert(chunk);
+      if (error) {
+        console.error('Supabase Planning sync error:', {
+          error,
+          chunk,
+          originalPlanning: planning.slice(i, i + CHUNK_SIZE)
+        });
+      }
     }
   } catch (e) {
-    console.error('Supabase Planning sync failed', e);
+    console.error('Supabase Planning sync exception:', e);
   }
 };
 
 export const syncTimesheetsToCloud = async (entries: TimesheetEntry[]) => {
   if (entries.length === 0) return;
+  const data = entries.map(e => mapTimesheetToSupabase(e));
   try {
-    const data = entries.map(e => mapTimesheetToSupabase(e));
     const CHUNK_SIZE = 100;
     for (let i = 0; i < data.length; i += CHUNK_SIZE) {
-      await supabase.from('timesheets').upsert(data.slice(i, i + CHUNK_SIZE));
+      const chunk = data.slice(i, i + CHUNK_SIZE);
+      const { error } = await supabase.from('timesheets').upsert(chunk);
+      if (error) {
+        console.error('Supabase Timesheet sync error:', {
+          error,
+          chunk,
+          originalEntries: entries.slice(i, i + CHUNK_SIZE)
+        });
+      }
     }
   } catch (e) {
-    console.error('Supabase Timesheet sync failed', e);
+    console.error('Supabase Timesheet sync exception:', e);
   }
 };
 

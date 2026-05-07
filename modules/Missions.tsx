@@ -297,8 +297,14 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
         weeks.forEach(w => {
           const wKey = format(w, 'yyyy-MM-dd');
           const existing = oldPlanningForMission.find(p => p.userId === userId && p.weekStart === wKey);
+          
+          // Use existing UUID if valid, otherwise generate a new UUID
+          const planningId = (existing?.id && isValidUuid(existing.id)) 
+            ? existing.id 
+            : crypto.randomUUID();
+
           newMissionPlanning.push({ 
-            id: existing?.id || generateId(), 
+            id: planningId, 
             missionId, userId, weekStart: wKey, 
             percentage: pct, tjm: tjm, costDay: cost,
             externalName: extName, externalType: extType,
