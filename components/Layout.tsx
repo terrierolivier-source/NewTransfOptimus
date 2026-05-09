@@ -153,7 +153,6 @@ const Layout: React.FC<LayoutProps> = ({
                 <LogOut size={20} className="group-hover:scale-110 transition-transform" />
               </button>
               <div className="flex flex-col">
-                <span className="text-[10px] text-brand-white font-bold leading-tight uppercase tracking-tight truncate max-w-[100px]">{currentUser.firstName} {currentUser.lastName}</span>
                 <span className="text-[8px] text-brand-white/30 font-black uppercase tracking-widest leading-none mt-0.5">Session Active</span>
               </div>
             </div>

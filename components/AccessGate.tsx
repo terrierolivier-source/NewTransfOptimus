@@ -37,12 +37,12 @@ const AccessGate: React.FC<AccessGateProps> = ({ onAuthorize }) => {
     <div className="flex items-center justify-center min-h-screen bg-brand-gray p-4 font-inter">
       <div className="bg-white p-8 md:p-12 rounded-3xl shadow-2xl max-w-md w-full text-center space-y-8 animate-in fade-in zoom-in duration-500">
         <div className="space-y-4">
-          <div className="w-20 h-20 bg-navy rounded-2xl flex items-center justify-center mx-auto shadow-lg rotate-3 hover:rotate-0 transition-transform duration-300">
-            <Rocket size={40} className="text-brand-yellow" />
+          <div className="w-20 h-20 bg-yellow-accent rounded-2xl flex items-center justify-center mx-auto shadow-lg rotate-3 hover:rotate-0 transition-transform duration-300">
+            <Rocket size={40} className="text-navy" />
           </div>
           <h1 className="text-3xl font-extrabold text-navy tracking-tight">OptimusPlan</h1>
           <p className="text-gray-500 text-sm md:text-base leading-relaxed">
-            Veuillez saisir le code d'accès pour entrer dans l'application.
+            Connectez vous pour suivre et piloter l'activité d'EPSA TRANSFO
           </p>
         </div>
 

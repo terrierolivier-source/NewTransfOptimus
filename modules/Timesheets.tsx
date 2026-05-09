@@ -20,7 +20,7 @@ import {
 import { AppState, TimesheetEntry, TimesheetStatus, MissionStatus, Role } from '../types';
 import { getMonday } from '../utils';
 import { syncTimesheetsToCloud, loadTimesheetsFromCloud, deleteTimesheetFromCloud } from '../services/dataService';
-import { addWeeks, addDays, format, isSameDay, parseISO, isWithinInterval } from 'date-fns';
+import { addWeeks, addDays, format, isSameDay, parseISO, isWithinInterval, getMonth } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
 interface TimesheetsProps {
@@ -48,6 +48,20 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState }) => {
   const [anchorWeek, setAnchorWeek] = useState(getMonday(new Date()));
   const [selectedUserId, setSelectedUserId] = useState(state.currentUser?.id || '');
   
+  const fyMonths = useMemo(() => {
+    const fyYear = parseInt(state.globalFY.replace('FY', ''));
+    // Fiscal year starts in Feb (index 1) and ends in Jan (index 0) of the next year
+    return [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0].map(monthIdx => {
+      const year = monthIdx === 0 ? fyYear + 1 : fyYear;
+      const date = new Date(year, monthIdx, 1);
+      return {
+        index: monthIdx,
+        year,
+        label: format(date, 'MMMM', { locale: fr }),
+      };
+    });
+  }, [state.globalFY]);
+
   const selectableUsers = useMemo(() => {
     return state.collaborators.map(c => ({
       id: c.id,
@@ -274,8 +288,29 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState }) => {
       <div className="bg-white p-4 lg:p-2.5 rounded-xl border shadow-sm flex flex-col lg:flex-row items-center justify-between gap-4 shrink-0">
         <div className="flex flex-col md:flex-row items-center gap-4 lg:gap-6 w-full lg:w-auto">
           <div className="flex items-center justify-between w-full md:w-auto gap-4">
-            <div className="flex bg-gray-100 p-1 rounded-xl">
+            <div className="flex bg-gray-100 p-1 rounded-xl items-center">
                <button onClick={() => setAnchorWeek(w => addWeeks(w, -1))} className="p-1.5 hover:bg-white hover:shadow-sm rounded-lg transition-all text-navy"><ChevronLeft size={18} /></button>
+               
+               <div className="relative px-2">
+                 <select 
+                   value={`${getMonth(anchorWeek)}-${anchorWeek.getFullYear()}`}
+                   onChange={(e) => {
+                     const [m, y] = e.target.value.split('-').map(Number);
+                     setAnchorWeek(getMonday(new Date(y, m, 1)));
+                   }}
+                   className="bg-transparent text-[10px] font-black text-navy uppercase tracking-tight outline-none cursor-pointer appearance-none pr-4 hover:text-yellow-600 transition-colors"
+                 >
+                   {fyMonths.map(m => (
+                     <option key={`${m.index}-${m.year}`} value={`${m.index}-${m.year}`}>
+                       {m.label}
+                     </option>
+                   ))}
+                 </select>
+                 <div className="absolute right-1 top-1/2 -translate-y-1/2 pointer-events-none text-navy/30">
+                    <ChevronLeft size={10} className="-rotate-90" />
+                 </div>
+               </div>
+
                <button onClick={() => setAnchorWeek(w => addWeeks(w, 1))} className="p-1.5 hover:bg-white hover:shadow-sm rounded-lg transition-all text-navy"><ChevronRight size={18} /></button>
             </div>
             <div className="flex flex-col">
