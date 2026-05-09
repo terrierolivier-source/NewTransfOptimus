@@ -434,52 +434,68 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
     <div className="space-y-6">
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm relative overflow-hidden">
         <div className="sticky top-0 z-30 bg-white border-b shadow-sm">
-          <div className="p-4 bg-gray-50 flex flex-col md:flex-row justify-between items-center gap-4">
-            <div className="flex items-center gap-4 flex-wrap">
-              <div className="flex items-center gap-2">
-                <h2 className="font-bold text-navy uppercase text-xs tracking-wider">Missions</h2>
-                <span className="bg-navy/10 text-navy px-2 py-0.5 rounded-full text-[10px] font-bold">{processedMissions.length}</span>
+          <div className="p-4 bg-gray-50 flex flex-col xl:flex-row justify-between items-center gap-4">
+            <div className="flex flex-col sm:flex-row items-center gap-4 w-full xl:w-auto">
+              <div className="flex items-center justify-between w-full sm:w-auto gap-4">
+                <div className="flex items-center gap-2">
+                  <h2 className="font-bold text-navy uppercase text-xs tracking-wider whitespace-nowrap">Missions</h2>
+                  <span className="bg-navy/10 text-navy px-2 py-0.5 rounded-full text-[10px] font-bold">{processedMissions.length}</span>
+                </div>
+                <div className="md:hidden">
+                   <button onClick={() => setEditingMission({ 
+                    name: '', 
+                    clientName: '', 
+                    billingMode: BillingMode.FORFAIT, 
+                    status: MissionStatus.EN_COURS, 
+                    startDate: format(new Date(), 'yyyy-MM-dd'), 
+                    endDate: format(new Date(), 'yyyy-MM-dd'), 
+                    country: Country.FRANCE, 
+                    type: MISSION_TYPES[0], 
+                    typology: TYPOLOGIES[0], 
+                    managerCollaboratorId: state.collaborators[0]?.id || '',
+                    forfaitAmountCurrentFY: 0, 
+                    forfaitAmountNextFY: 0, 
+                    successFeesCurrentFY: 0, 
+                    successFeesNextFY: 0 
+                  })} className="bg-navy text-white p-2 rounded-lg shadow-md active:scale-95"><Plus size={18} /></button>
+                </div>
               </div>
-              <div className="relative">
+              <div className="relative w-full sm:w-48">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
-                <input type="text" placeholder="Rechercher..." className="pl-9 pr-4 py-1.5 text-xs border rounded-lg outline-none w-48 bg-white focus:ring-2 focus:ring-yellow-accent" value={missionSearch} onChange={e => setMissionSearch(e.target.value)} />
+                <input type="text" placeholder="Rechercher..." className="pl-9 pr-4 py-1.5 text-xs border rounded-lg outline-none w-full bg-white focus:ring-2 focus:ring-yellow-accent" value={missionSearch} onChange={e => setMissionSearch(e.target.value)} />
               </div>
-              <div className="flex items-center gap-2">
-                <select className="text-[10px] font-bold border rounded-lg px-2 py-1 outline-none bg-white text-navy uppercase tracking-tighter" value={typologyFilter} onChange={e => setTypologyFilter(e.target.value)}>
-                  <option value="All">Toutes Typologies</option>
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 w-full sm:w-auto no-scrollbar">
+                <select className="text-[10px] font-bold border rounded-lg px-2 py-1 outline-none bg-white text-navy uppercase tracking-tighter shrink-0" value={typologyFilter} onChange={e => setTypologyFilter(e.target.value)}>
+                  <option value="All">Typologies</option>
                   {TYPOLOGIES.map(t => <option value={t} key={t}>{t}</option>)}
                 </select>
-                <select className="text-[10px] font-bold border rounded-lg px-2 py-1 outline-none bg-white text-navy uppercase tracking-tighter" value={billingModeFilter} onChange={e => setBillingModeFilter(e.target.value)}>
-                  <option value="All">Tous Modes</option>
+                <select className="text-[10px] font-bold border rounded-lg px-2 py-1 outline-none bg-white text-navy uppercase tracking-tighter shrink-0" value={billingModeFilter} onChange={e => setBillingModeFilter(e.target.value)}>
+                  <option value="All">Modes</option>
                   {Object.values(BillingMode).map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
-                <select className="text-[10px] font-bold border rounded-lg px-2 py-1 outline-none bg-white text-navy uppercase tracking-tighter" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-                  <option value="All">Tous Statuts</option>
-                  <option value="Active">En cours + Non démarrée</option>
+                <select className="text-[10px] font-bold border rounded-lg px-2 py-1 outline-none bg-white text-navy uppercase tracking-tighter shrink-0" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+                  <option value="All">Statuts</option>
+                  <option value="Active">En cours</option>
                   {Object.values(MissionStatus).map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-                <select className="text-[10px] font-bold border rounded-lg px-2 py-1 outline-none bg-white text-navy uppercase tracking-tighter" value={managerFilter} onChange={e => setManagerFilter(e.target.value)}>
-                  <option value="All">Tous Responsables</option>
-                  {state.collaborators.map(u => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
                 </select>
               </div>
             </div>
 
-            <div className="flex items-center gap-8">
-              <div className="hidden md:flex items-center gap-6">
-                <div className="flex flex-col items-end">
-                  <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">Total CA Missions</span>
-                  <span className="text-sm font-black text-navy leading-none">{formatCurrency(totalCAMission)}</span>
+            <div className="flex flex-col sm:flex-row items-center gap-4 md:gap-8 w-full xl:w-auto">
+              <div className="grid grid-cols-3 xl:flex xl:items-center gap-4 md:gap-6 w-full xl:w-auto py-2 border-y md:border-y-0 border-gray-200">
+                <div className="flex flex-col items-center xl:items-end">
+                  <span className="text-[7px] md:text-[8px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">Total CA</span>
+                  <span className="text-[10px] md:text-sm font-black text-navy leading-none">{formatCurrency(totalCAMission)}</span>
                 </div>
-                <div className="w-px h-8 bg-gray-200"></div>
-                <div className="flex flex-col items-end">
-                  <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">CA FY {actualYear}</span>
-                  <span className="text-xs font-black text-navy/60 text-right leading-none">{formatCurrency(totalCAFYN)}</span>
+                <div className="hidden xl:block w-px h-8 bg-gray-200"></div>
+                <div className="flex flex-col items-center xl:items-end">
+                  <span className="text-[7px] md:text-[8px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">CA {actualYear}</span>
+                  <span className="text-[10px] md:text-xs font-black text-navy/60 text-right leading-none">{formatCurrency(totalCAFYN)}</span>
                 </div>
-                <div className="w-px h-8 bg-gray-200"></div>
-                <div className="flex flex-col items-end">
-                  <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">CA FY {actualYear + 1}</span>
-                  <span className="text-xs font-black text-navy/60 text-right leading-none">{formatCurrency(totalCAFYN1)}</span>
+                <div className="hidden xl:block w-px h-8 bg-gray-200"></div>
+                <div className="flex flex-col items-center xl:items-end">
+                  <span className="text-[7px] md:text-[8px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">CA {actualYear + 1}</span>
+                  <span className="text-[10px] md:text-xs font-black text-navy/60 text-right leading-none">{formatCurrency(totalCAFYN1)}</span>
                 </div>
               </div>
               
@@ -498,7 +514,7 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
                 forfaitAmountNextFY: 0, 
                 successFeesCurrentFY: 0, 
                 successFeesNextFY: 0 
-              })} className="bg-navy text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-navy/90 transition-all shadow-md active:scale-95 shrink-0"><Plus size={16} /> Nouvelle Mission</button>
+              })} className="hidden md:flex bg-navy text-white px-4 py-2 rounded-lg text-sm font-bold items-center gap-2 hover:bg-navy/90 transition-all shadow-md active:scale-95 shrink-0"><Plus size={16} /> Nouvelle Mission</button>
             </div>
           </div>
         </div>

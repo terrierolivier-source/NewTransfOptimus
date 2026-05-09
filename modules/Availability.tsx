@@ -283,23 +283,37 @@ const Availability: React.FC<AvailabilityProps> = ({ state, updateState }) => {
 
   return (
     <div className="space-y-6">
-      <div className="sticky -top-8 z-40 bg-brand-gray -mx-8 px-8 pt-8 pb-4 mb-2">
-        <div className="bg-white p-2 rounded-xl border shadow-sm flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 shrink-0">
-            <div className="flex bg-gray-100 p-0.5 rounded-lg shrink-0">
+      <div className="sticky top-[-16px] xl:top-[-32px] z-40 bg-brand-gray -mx-4 xl:-mx-8 px-4 xl:px-8 pt-4 xl:pt-8 pb-4 mb-2">
+        <div className="bg-white p-4 xl:p-2 rounded-xl border shadow-sm flex flex-col xl:flex-row items-center justify-between gap-4">
+          <div className="flex flex-col md:flex-row items-center gap-3 w-full xl:w-auto">
+            <div className="flex bg-gray-100 p-0.5 rounded-lg overflow-x-auto w-full md:w-auto no-scrollbar shrink-0">
               {(['day', 'week', 'month', 'quarter'] as TimeScale[]).map(s => (
-                <button key={s} onClick={() => setTimeScale(s)} className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[9px] font-bold transition-all ${timeScale === s ? 'bg-white shadow-sm text-navy' : 'text-gray-500 hover:text-navy'}`}>{s === 'day' ? <Clock size={12} /> : s === 'week' ? <CalendarDays size={12} /> : s === 'month' ? <Calendar size={12} /> : <CalendarRange size={12} />} {s.toUpperCase()}</button>
+                <button key={s} onClick={() => setTimeScale(s)} className={`flex-1 md:flex-none flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-[9px] font-bold transition-all shrink-0 ${timeScale === s ? 'bg-white shadow-sm text-navy' : 'text-gray-500 hover:text-navy'}`}>{s === 'day' ? <Clock size={12} /> : s === 'week' ? <CalendarDays size={12} /> : s === 'month' ? <Calendar size={12} /> : <CalendarRange size={12} />} {s.toUpperCase()}</button>
               ))}
             </div>
-            <div className="flex items-center gap-1 bg-navy/5 p-0.5 rounded-xl border border-navy/10 shrink-0">
-              <button onClick={() => handleNavigate(-1)} className="p-1 hover:bg-white rounded-lg transition-all text-navy"><ChevronLeft size={14} /></button>
-              <div className="font-black text-navy text-[9px] uppercase px-1 min-w-[85px] text-center tracking-tighter">
-                {timeScale === 'day' ? format(currentDate, 'dd/MM/yy') : timeScale === 'week' ? `S${format(currentDate, 'w')} ${format(currentDate, 'yyyy')}` : timeScale === 'quarter' ? formatFiscalQuarter(currentDate) : format(currentDate, 'MMMM yyyy', { locale: fr })}
+            <div className="flex items-center justify-between w-full md:w-auto gap-3">
+              <div className="flex items-center gap-1 bg-navy/5 p-0.5 rounded-xl border border-navy/10 shrink-0">
+                <button onClick={() => handleNavigate(-1)} className="p-1 hover:bg-white rounded-lg transition-all text-navy"><ChevronLeft size={14} /></button>
+                <div className="font-black text-navy text-[9px] uppercase px-1 min-w-[85px] text-center tracking-tighter">
+                  {timeScale === 'day' ? format(currentDate, 'dd/MM/yy') : timeScale === 'week' ? `S${format(currentDate, 'w')} ${format(currentDate, 'yyyy')}` : timeScale === 'quarter' ? formatFiscalQuarter(currentDate) : format(currentDate, 'MMMM yyyy', { locale: fr })}
+                </div>
+                <button onClick={() => handleNavigate(1)} className="p-1 hover:bg-white rounded-lg transition-all text-navy"><ChevronRight size={14} /></button>
               </div>
-              <button onClick={() => handleNavigate(1)} className="p-1 hover:bg-white rounded-lg transition-all text-navy"><ChevronRight size={14} /></button>
+              
+              <div className="flex md:hidden items-center gap-4 px-3 py-1 bg-navy text-white rounded-xl shadow-md flex-1 justify-center">
+                <div className="flex flex-col items-center">
+                  <span className="text-[7px] font-black text-yellow-accent uppercase tracking-widest leading-none mb-0.5">Occ.</span>
+                  <span className="text-[10px] font-black leading-none">{Math.round(deliveryKpis.avg)}%</span>
+                </div>
+                <div className="w-px h-4 bg-white/20"></div>
+                <div className="flex flex-col items-center">
+                  <span className="text-[7px] font-black text-white/40 uppercase tracking-widest leading-none mb-0.5">TEAM</span>
+                  <span className="text-[10px] font-black leading-none">{deliveryKpis.count}</span>
+                </div>
+              </div>
             </div>
-            
-            <div className="flex items-center gap-6 px-4 py-1 bg-navy text-white rounded-xl shadow-md">
+
+            <div className="hidden md:flex items-center gap-6 px-4 py-1 bg-navy text-white rounded-xl shadow-md">
               <div className="flex flex-col">
                 <span className="text-[7px] font-black text-yellow-accent uppercase tracking-widest leading-none mb-1">Occ. Delivery</span>
                 <span className="text-xs font-black leading-none">{Math.round(deliveryKpis.avg)}%</span>
@@ -311,56 +325,58 @@ const Availability: React.FC<AvailabilityProps> = ({ state, updateState }) => {
               </div>
             </div>
 
-            <div className="relative" ref={gradeDropdownRef}>
-              <button 
-                onClick={() => setShowGradeDropdown(!showGradeDropdown)}
-                className={`flex items-center gap-2 px-3 py-1.5 text-[10px] font-bold rounded-lg border transition-all ${selectedGrades.length !== DELIVERY_GRADES.length ? 'bg-navy text-white' : 'bg-gray-100 text-navy hover:bg-gray-200'}`}
-              >
-                <UserCircle size={14} />
-                Grades ({selectedGrades.length})
-                <ChevronDown size={12} className={`transition-transform duration-200 ${showGradeDropdown ? 'rotate-180' : ''}`} />
-              </button>
-              
-              {showGradeDropdown && (
-                <div className="absolute top-full left-0 mt-2 w-56 bg-white rounded-xl shadow-2xl border border-gray-100 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
-                  <div className="p-2 bg-gray-50 border-b flex justify-between items-center">
-                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-2">Filtrer par grade</span>
-                    <button 
-                      onClick={() => setSelectedGrades(DELIVERY_GRADES)}
-                      className="text-[9px] font-bold text-navy hover:text-yellow-accent px-2 py-1 rounded bg-white border shadow-sm transition-all"
-                    >
-                      Défaut Delivery
-                    </button>
+            <div className="flex items-center gap-3 w-full md:w-auto">
+              <div className="relative flex-1 md:flex-none" ref={gradeDropdownRef}>
+                <button 
+                  onClick={() => setShowGradeDropdown(!showGradeDropdown)}
+                  className={`w-full flex items-center justify-between md:justify-start gap-2 px-3 py-1.5 text-[10px] font-bold rounded-lg border transition-all ${selectedGrades.length !== DELIVERY_GRADES.length ? 'bg-navy text-white' : 'bg-gray-100 text-navy hover:bg-gray-200'}`}
+                >
+                  <div className="flex items-center gap-2">
+                    <UserCircle size={14} />
+                    <span>Grades ({selectedGrades.length})</span>
                   </div>
-                  <div className="max-h-64 overflow-y-auto p-1">
-                    {Object.values(Role).map((grade) => (
-                      <button
-                        key={grade}
-                        onClick={() => toggleGrade(grade)}
-                        className="w-full flex items-center justify-between px-3 py-2 hover:bg-navy/5 rounded-lg transition-colors group"
+                  <ChevronDown size={12} className={`transition-transform duration-200 ${showGradeDropdown ? 'rotate-180' : ''}`} />
+                </button>
+                
+                {showGradeDropdown && (
+                  <div className="absolute top-full left-0 mt-2 w-56 bg-white rounded-xl shadow-2xl border border-gray-100 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                    <div className="p-2 bg-gray-50 border-b flex justify-between items-center">
+                      <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-2">Filtrer par grade</span>
+                      <button 
+                        onClick={() => setSelectedGrades(DELIVERY_GRADES)}
+                        className="text-[9px] font-bold text-navy hover:text-yellow-accent px-2 py-1 rounded bg-white border shadow-sm transition-all"
                       >
-                        <span className={`text-[10px] font-bold uppercase transition-colors ${selectedGrades.includes(grade) ? 'text-navy' : 'text-gray-400'}`}>
-                          {grade}
-                        </span>
-                        {selectedGrades.includes(grade) && (
-                          <Check size={12} className="text-yellow-accent" strokeWidth={3} />
-                        )}
+                        Delivery
                       </button>
-                    ))}
+                    </div>
+                    <div className="max-h-64 overflow-y-auto p-1">
+                      {Object.values(Role).map((grade) => (
+                        <button
+                          key={grade}
+                          onClick={() => toggleGrade(grade)}
+                          className="w-full flex items-center justify-between px-3 py-2 hover:bg-navy/5 rounded-lg transition-colors group"
+                        >
+                          <span className={`text-[10px] font-bold uppercase transition-colors ${selectedGrades.includes(grade) ? 'text-navy' : 'text-gray-400'}`}>
+                            {grade}
+                          </span>
+                          {selectedGrades.includes(grade) && (
+                            <Check size={12} className="text-yellow-accent" strokeWidth={3} />
+                          )}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                  <div className="p-2 border-t bg-gray-50 flex gap-2">
-                    <button onClick={() => setSelectedGrades(Object.values(Role))} className="flex-1 text-[9px] font-black uppercase text-navy/60 hover:text-navy text-center py-1">Tout</button>
-                    <button onClick={() => setSelectedGrades([])} className="flex-1 text-[9px] font-black uppercase text-red-500/60 hover:text-red-500 text-center py-1">Aucun</button>
-                  </div>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
 
-            <button onClick={() => setCurrentDate(startOfToday())} className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold bg-navy text-yellow-accent rounded-lg transition-all hover:bg-navy/90 shadow-sm uppercase tracking-tighter"><CalendarClock size={12} /> Aujourd'hui</button>
+              <button onClick={() => setCurrentDate(startOfToday())} className="flex items-center justify-center gap-1.5 px-3 py-1.5 text-[10px] font-bold bg-navy text-yellow-accent rounded-lg transition-all hover:bg-navy/90 shadow-sm uppercase tracking-tighter w-10 md:w-auto overflow-hidden">
+                <CalendarClock size={14} className="shrink-0" /> <span className="hidden md:inline">Aujourd'hui</span>
+              </button>
+            </div>
           </div>
-          <div className="relative">
+          <div className="relative w-full xl:w-48">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={13} />
-            <input type="text" placeholder="Rechercher consultant..." className="pl-8 pr-3 py-1.5 border rounded-lg focus:ring-1 focus:ring-yellow-accent outline-none w-40 text-[11px] bg-gray-50/50" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+            <input type="text" placeholder="Rechercher..." className="pl-8 pr-3 py-1.5 border rounded-lg focus:ring-1 focus:ring-yellow-accent outline-none w-full text-[11px] bg-gray-50/50" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
           </div>
         </div>
       </div>
@@ -379,8 +395,8 @@ const Availability: React.FC<AvailabilityProps> = ({ state, updateState }) => {
           const avgOccupancyTotal = getOccupancyForUserInPeriod(user);
           const availability = Math.max(0, 100 - Math.round(avgOccupancyTotal));
           return (
-            <div key={user.id} className="flex bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden min-h-[110px] transition-all hover:shadow-md group/row">
-              <div className="w-72 p-3 border-r bg-gray-50/50 flex flex-col justify-center shrink-0 px-6">
+            <div key={user.id} className="flex flex-col xl:flex-row bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden min-h-[110px] transition-all hover:shadow-md group/row">
+              <div className="w-full xl:w-72 p-3 border-b xl:border-b-0 xl:border-r bg-gray-50/50 flex flex-col justify-center shrink-0 px-6">
                 <div className="flex items-center gap-4">
                   <div className="w-10 h-10 rounded-full bg-navy text-yellow-accent flex items-center justify-center font-bold text-sm border-2 border-yellow-accent/20 shadow-sm shrink-0">{user.firstName[0]}{user.lastName[0]}</div>
                   <div className="overflow-hidden">

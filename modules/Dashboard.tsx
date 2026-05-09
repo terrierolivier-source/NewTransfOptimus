@@ -684,7 +684,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
         </div>
 
         {/* Colonne 3: Grille des 4 Mini-KPIs en 2x2 */}
-        <div className="grid grid-cols-2 gap-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
           <div className={`${KPI_BLOCK_CLASS} bg-white border-gray-100 group/margin relative`}>
             {/* Tooltip Détail Calcul */}
             <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-48 bg-navy p-3 rounded-xl shadow-xl border border-white/10 hidden group-hover/margin:block z-50 pointer-events-none">
@@ -898,7 +898,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
           </div>
           ALERTES DE PILOTAGE CRITIQUE
         </h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
           {Object.entries(alerts).map(([key, listObj]) => {
             const list = listObj as any[];
             const config = {

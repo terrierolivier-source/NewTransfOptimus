@@ -271,9 +271,9 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState }) => {
 
   return (
     <div className="space-y-6 max-w-[1600px] mx-auto h-full flex flex-col pb-6">
-      <div className="bg-white p-2.5 rounded-xl border shadow-sm flex flex-wrap items-center justify-between gap-4 shrink-0">
-        <div className="flex items-center gap-6">
-          <div className="flex items-center gap-4">
+      <div className="bg-white p-4 lg:p-2.5 rounded-xl border shadow-sm flex flex-col lg:flex-row items-center justify-between gap-4 shrink-0">
+        <div className="flex flex-col md:flex-row items-center gap-4 lg:gap-6 w-full lg:w-auto">
+          <div className="flex items-center justify-between w-full md:w-auto gap-4">
             <div className="flex bg-gray-100 p-1 rounded-xl">
                <button onClick={() => setAnchorWeek(w => addWeeks(w, -1))} className="p-1.5 hover:bg-white hover:shadow-sm rounded-lg transition-all text-navy"><ChevronLeft size={18} /></button>
                <button onClick={() => setAnchorWeek(w => addWeeks(w, 1))} className="p-1.5 hover:bg-white hover:shadow-sm rounded-lg transition-all text-navy"><ChevronRight size={18} /></button>
@@ -282,18 +282,18 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState }) => {
               <span className="text-[9px] font-black text-navy/30 uppercase tracking-[0.2em] leading-none mb-1">Période d'affichage</span>
               <div className="flex items-center gap-2">
                 <Calendar size={13} className="text-yellow-accent" />
-                <span className="text-xs font-black text-navy uppercase tracking-tight">
+                <span className="text-xs font-black text-navy uppercase tracking-tight whitespace-nowrap">
                   {format(displayedWeeks[0], 'dd MMM', { locale: fr })} - {format(addDays(displayedWeeks[1], 4), 'dd MMM yyyy', { locale: fr })}
                 </span>
               </div>
             </div>
           </div>
-          <div className="h-8 w-px bg-gray-200"></div>
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-full bg-navy text-yellow-accent flex items-center justify-center font-black text-[10px] border border-navy/10 uppercase">
+          <div className="hidden md:block h-8 w-px bg-gray-200"></div>
+          <div className="flex items-center gap-2.5 w-full md:w-auto mt-2 md:mt-0">
+            <div className="w-7 h-7 rounded-full bg-navy text-yellow-accent flex items-center justify-center font-black text-[10px] border border-navy/10 uppercase shrink-0">
                 {selectedUser?.name.split(' ').map(n => n[0]).join('')}
             </div>
-            <select value={selectedUserId} onChange={(e) => setSelectedUserId(e.target.value)} className="bg-brand-gray border-2 border-transparent focus:border-yellow-accent rounded-lg px-3 py-1.5 text-[10px] font-black text-navy outline-none cursor-pointer transition-all hover:bg-gray-200">
+            <select value={selectedUserId} onChange={(e) => setSelectedUserId(e.target.value)} className="flex-1 md:flex-none bg-brand-gray border-2 border-transparent focus:border-yellow-accent rounded-lg px-3 py-1.5 text-[10px] font-black text-navy outline-none cursor-pointer transition-all hover:bg-gray-200 min-w-0">
               {selectableUsers.map(u => (
                 <option key={u.id} value={u.id}>
                   {u.name} ({u.role}) {u.isExternal ? '👤 EXT' : ''}
@@ -302,7 +302,7 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState }) => {
             </select>
           </div>
         </div>
-        <button onClick={() => setAnchorWeek(getMonday(new Date()))} className="px-4 py-1.5 bg-navy text-yellow-accent text-[9px] font-black uppercase tracking-widest rounded-lg hover:bg-navy/90 transition-all shadow-md active:scale-95">Cette semaine</button>
+        <button onClick={() => setAnchorWeek(getMonday(new Date()))} className="w-full lg:w-auto px-4 py-2 bg-navy text-yellow-accent text-[9px] font-black uppercase tracking-widest rounded-lg hover:bg-navy/90 transition-all shadow-md active:scale-95">Cette semaine</button>
       </div>
 
       <div className="space-y-10 flex-1 overflow-auto pr-2 custom-scrollbar">

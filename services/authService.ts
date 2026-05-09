@@ -53,7 +53,7 @@ export const mapSupabaseUserToAppUser = (supabaseUser: any): User => {
     firstName,
     lastName,
     email: supabaseUser.email || `guest-${supabaseUser.id}@app.local`,
-    grade: Role.CONSEILLER, // Limit default grade for guests if needed, or keep high for demo
+    grade: Role.CONSULTANT, // Limit default grade for guests if needed, or keep high for demo
     country: Country.FRANCE,
     isAdmin: true, // Keep admin for now so visitors can test everything
     active: true,

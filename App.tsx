@@ -5,6 +5,7 @@ import { getInitialState, saveState, syncStateToCloud, createDailyBackup, loadSt
 import { onAuthStateChange, signOut, mapSupabaseUserToAppUser, getCurrentSession } from './services/authService';
 import Layout from './components/Layout';
 import AccessGate, { APP_ACCESS_VERSION } from './components/AccessGate';
+import AdminGate, { ADMIN_ACCESS_VERSION } from './components/AdminGate';
 import Dashboard from './modules/Dashboard';
 import Admin from './modules/Admin';
 import Missions from './modules/Missions';
@@ -23,6 +24,11 @@ const App: React.FC = () => {
     const authorized = localStorage.getItem('optimus_authorized') === 'true';
     const storedVersion = localStorage.getItem('optimus_access_version');
     return authorized && storedVersion === APP_ACCESS_VERSION;
+  });
+  const [isAdminAuthorized, setIsAdminAuthorized] = useState(() => {
+    const adminAuthorized = localStorage.getItem('optimus_admin_access_granted') === 'true';
+    const storedAdminVersion = localStorage.getItem('optimus_admin_access_version');
+    return adminAuthorized && storedAdminVersion === ADMIN_ACCESS_VERSION;
   });
   const [authError, setAuthError] = useState<string | null>(null);
 
@@ -106,7 +112,16 @@ const App: React.FC = () => {
 
   const handleLock = () => {
     localStorage.removeItem('optimus_authorized');
+    localStorage.removeItem('optimus_admin_access_granted');
+    localStorage.removeItem('optimus_admin_access_version');
     setIsAuthorized(false);
+    setIsAdminAuthorized(false);
+  };
+
+  const handleAdminLock = () => {
+    localStorage.removeItem('optimus_admin_access_granted');
+    localStorage.removeItem('optimus_admin_access_version');
+    setIsAdminAuthorized(false);
   };
 
   const renderModule = () => {
@@ -114,6 +129,9 @@ const App: React.FC = () => {
       case 'dashboard':
         return <Dashboard state={state} />;
       case 'admin':
+        if (!isAdminAuthorized) {
+          return <AdminGate onAuthorize={() => setIsAdminAuthorized(true)} title="Accès Administration" />;
+        }
         return <Admin state={state} updateState={updateState} />;
       case 'missions':
         return <Missions state={state} updateState={updateState} />;
@@ -124,6 +142,9 @@ const App: React.FC = () => {
       case 'availability':
         return <Availability state={state} updateState={updateState} />;
       case 'budget_tracking':
+        if (!isAdminAuthorized) {
+          return <AdminGate onAuthorize={() => setIsAdminAuthorized(true)} title="Accès Suivi Budgétaire" />;
+        }
         return <BudgetTracking state={state} updateState={updateState} />;
       default:
         return <Dashboard state={state} />;
@@ -160,6 +181,8 @@ const App: React.FC = () => {
       setGlobalFY={(fy) => updateState({ globalFY: fy })}
       onLogout={handleLogout}
       onLock={handleLock}
+      isAdminAuthorized={isAdminAuthorized}
+      onAdminLock={handleAdminLock}
     >
       {renderModule()}
     </Layout>

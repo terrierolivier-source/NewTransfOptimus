@@ -1,4 +1,5 @@
 import { AppState, Country, Mission, MissionStatus, BillingMode, PlanningEntry, TimesheetEntry, InternalStaffing, ManualExpense, BudgetFamily, Holiday, User, Collaborator, CollaboratorType, Role } from '../types';
+import React from 'react';
 import { parseCSVUsers, SEED_MISSIONS_RAW } from '../constants';
 import { getFiscalYear, generateId } from '../utils';
 import { startOfWeek, addWeeks, format, parseISO, isWithinInterval, eachWeekOfInterval } from 'date-fns';
@@ -405,8 +406,9 @@ export const setupRealtimeSync = (
       });
     })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'config' }, payload => {
-      if (payload.new && payload.new.key === 'global') {
-        const data = payload.new.data;
+      const newData = payload.new as any;
+      if (newData && newData.key === 'global') {
+        const data = newData.data;
         setState(prev => ({
           ...prev,
           globalFY: data.globalFY || prev.globalFY,
@@ -615,6 +617,7 @@ export const getInitialState = (): AppState => {
       startDate: parseCSVDate(start),
       endDate: parseCSVDate(end),
       status: newStatus,
+      managerCollaboratorId: '', 
       forfaitAmountCurrentFY: parseInt(fy25) || 0,
       forfaitAmountNextFY: parseInt(fy26) || 0,
       active: true,
@@ -636,6 +639,7 @@ export const getInitialState = (): AppState => {
       const staffingRow: InternalStaffing = {
         id: generateId(),
         userId: user.id,
+        collaboratorId: user.id,
         startDate: mission.startDate,
         endDate: mission.endDate,
         percentage: 30 + (mIdx * 10),
@@ -650,6 +654,7 @@ export const getInitialState = (): AppState => {
           planning.push({
             id: generateId(),
             userId: user.id,
+            collaboratorId: user.id,
             missionId: mission.id,
             weekStart: format(w, 'yyyy-MM-dd'),
             percentage: staffingRow.percentage,

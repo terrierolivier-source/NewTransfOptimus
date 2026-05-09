@@ -147,7 +147,15 @@ const Planning: React.FC<PlanningProps> = ({ state, updateState }) => {
   }, [startDate, endDate, timeScale]);
 
   const totalWidth = timeColumns.length * config.colWidth;
-  const LEFT_COLUMN_WIDTH = 380; 
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const LEFT_COLUMN_WIDTH = isMobile ? 180 : 380; 
   const ROW_TOTAL_WIDTH = LEFT_COLUMN_WIDTH + totalWidth;
 
   const calculateMissionMargin = (m: Mission) => {
@@ -433,44 +441,38 @@ const Planning: React.FC<PlanningProps> = ({ state, updateState }) => {
         </div>
       )}
 
-      <div className="bg-white p-4 rounded-xl border shadow-sm flex flex-wrap items-center justify-between gap-4 shrink-0">
-        <div className="flex flex-wrap items-center gap-3 flex-1">
-          <div className="relative w-64">
+      <div className="bg-white p-4 rounded-xl border shadow-sm flex flex-col xl:flex-row items-center justify-between gap-4 shrink-0">
+        <div className="flex flex-col md:flex-row xl:flex-row items-center gap-3 w-full xl:flex-1">
+          <div className="relative w-full md:w-64">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
             <input type="text" placeholder="Rechercher client ou mission..." className="w-full pl-9 pr-4 py-2 border rounded-lg text-xs outline-none focus:ring-2 focus:ring-yellow-accent" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
           </div>
 
-          <div className="flex bg-gray-100 p-1 rounded-lg items-center gap-1">
-            <Filter size={12} className="text-gray-400 mx-1" />
+          <div className="flex bg-gray-100 p-1 rounded-lg items-center gap-0.5 overflow-x-auto w-full md:w-auto no-scrollbar">
+            <Filter size={12} className="text-gray-400 mx-1 shrink-0" />
             <button 
               onClick={() => setStatusFilter('All')} 
-              className={`px-2 py-1.5 rounded-md text-[10px] font-bold transition-all uppercase tracking-tighter ${statusFilter === 'All' ? 'bg-white shadow-sm text-navy' : 'text-gray-500 hover:text-navy'}`}
+              className={`px-2 py-1.5 rounded-md text-[10px] font-bold transition-all uppercase tracking-tighter shrink-0 ${statusFilter === 'All' ? 'bg-white shadow-sm text-navy' : 'text-gray-500 hover:text-navy'}`}
             >
               Toutes
             </button>
             <button 
               onClick={() => setStatusFilter('Active')} 
-              className={`px-2 py-1.5 rounded-md text-[10px] font-bold transition-all uppercase tracking-tighter ${statusFilter === 'Active' ? 'bg-white shadow-sm text-emerald-600' : 'text-gray-500 hover:text-navy'}`}
+              className={`px-2 py-1.5 rounded-md text-[10px] font-bold transition-all uppercase tracking-tighter shrink-0 ${statusFilter === 'Active' ? 'bg-white shadow-sm text-emerald-600' : 'text-gray-500 hover:text-navy'}`}
             >
-              En cours + Non démarrée
+              ACTIVES
             </button>
             <button 
               onClick={() => setStatusFilter(MissionStatus.EN_COURS)} 
-              className={`px-2 py-1.5 rounded-md text-[10px] font-bold transition-all uppercase tracking-tighter ${statusFilter === MissionStatus.EN_COURS ? 'bg-white shadow-sm text-navy' : 'text-gray-500 hover:text-navy'}`}
+              className={`px-2 py-1.5 rounded-md text-[10px] font-bold transition-all uppercase tracking-tighter shrink-0 ${statusFilter === MissionStatus.EN_COURS ? 'bg-white shadow-sm text-navy' : 'text-gray-500 hover:text-navy'}`}
             >
-              En cours
+              EN COURS
             </button>
             <button 
               onClick={() => setStatusFilter(MissionStatus.NON_DEMARREE)} 
-              className={`px-2 py-1.5 rounded-md text-[10px] font-bold transition-all uppercase tracking-tighter ${statusFilter === MissionStatus.NON_DEMARREE ? 'bg-white shadow-sm text-navy' : 'text-gray-500 hover:text-navy'}`}
+              className={`px-2 py-1.5 rounded-md text-[10px] font-bold transition-all uppercase tracking-tighter shrink-0 ${statusFilter === MissionStatus.NON_DEMARREE ? 'bg-white shadow-sm text-navy' : 'text-gray-500 hover:text-navy'}`}
             >
-              Non démarrée
-            </button>
-            <button 
-              onClick={() => setStatusFilter(MissionStatus.TERMINEE)} 
-              className={`px-2 py-1.5 rounded-md text-[10px] font-bold transition-all uppercase tracking-tighter ${statusFilter === MissionStatus.TERMINEE ? 'bg-white shadow-sm text-red-600' : 'text-gray-500 hover:text-navy'}`}
-            >
-              Terminées
+              PRÉVUES
             </button>
           </div>
 
@@ -479,40 +481,40 @@ const Planning: React.FC<PlanningProps> = ({ state, updateState }) => {
               <FilterX size={12} /> Reset
             </button>
           )}
+        </div>
 
+        <div className="flex flex-wrap items-center justify-center gap-3 w-full xl:w-auto mt-2 xl:mt-0">
           <button 
             onClick={() => scrollToToday('smooth')}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold bg-navy text-yellow-accent rounded-lg transition-all hover:bg-navy/90 shadow-sm uppercase tracking-tighter"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold bg-navy text-yellow-accent rounded-lg transition-all hover:bg-navy/90 shadow-sm uppercase tracking-tighter shrink-0"
           >
             <CalendarClock size={12} />
             Aujourd'hui
           </button>
 
-          <div className="flex bg-gray-100 p-1 rounded-lg">
+          <div className="flex bg-gray-100 p-1 rounded-lg shrink-0">
             {(['week', 'month', 'quarter'] as TimeScale[]).map(s => (
               <button key={s} onClick={() => setTimeScale(s)} className={`px-4 py-1.5 rounded-md text-[10px] font-bold transition-all ${timeScale === s ? 'bg-white shadow-sm text-navy' : 'text-gray-500 hover:text-navy'}`}>{s.toUpperCase()}</button>
             ))}
           </div>
-        </div>
-        
-        <div className="flex items-center gap-2 bg-navy/5 px-3 py-1 rounded-lg border border-navy/10 shrink-0">
-          <CalendarRange size={14} className="text-navy/40" />
-          <div className="flex items-center gap-1.5">
-            <input 
-              type="date" 
-              className="bg-transparent text-[10px] font-black text-navy/70 uppercase outline-none focus:bg-white focus:ring-1 focus:ring-yellow-accent rounded px-1 transition-all w-28 cursor-pointer"
-              value={startDateStr}
-              onChange={(e) => setStartDateStr(e.target.value)}
-              title="Date de début du planning"
-            />
-            <span className="text-[10px] font-black text-navy/30">—</span>
-            <input 
-              type="date" 
-              className="bg-transparent text-[10px] font-black text-navy/70 uppercase outline-none focus:bg-white focus:ring-1 focus:ring-yellow-accent rounded px-1 transition-all w-28 cursor-pointer"
-              value={endDateStr}
-              onChange={(e) => setEndDateStr(e.target.value)}
-              title="Date de fin du planning"
-            />
+
+          <div className="flex items-center gap-2 bg-navy/5 px-3 py-1 rounded-lg border border-navy/10 shrink-0">
+            <CalendarRange size={14} className="text-navy/40" />
+            <div className="flex items-center gap-1.5">
+              <input 
+                type="date" 
+                className="bg-transparent text-[10px] font-black text-navy/70 uppercase outline-none focus:bg-white focus:ring-1 focus:ring-yellow-accent rounded px-1 transition-all w-24 sm:w-28 cursor-pointer"
+                value={startDateStr}
+                onChange={(e) => setStartDateStr(e.target.value)}
+              />
+              <span className="text-[10px] font-black text-navy/30">—</span>
+              <input 
+                type="date" 
+                className="bg-transparent text-[10px] font-black text-navy/70 uppercase outline-none focus:bg-white focus:ring-1 focus:ring-yellow-accent rounded px-1 transition-all w-24 sm:w-28 cursor-pointer"
+                value={endDateStr}
+                onChange={(e) => setEndDateStr(e.target.value)}
+              />
+            </div>
           </div>
         </div>
       </div>

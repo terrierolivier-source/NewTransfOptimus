@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { AppState, Country, Mission, MonthlyBillingOverride, ManualExpense, BudgetFamily, ExpenseStatus } from '../types';
 import { 
   parseISO, 
@@ -646,13 +646,25 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
     return val.toFixed(1) + ' %';
   };
 
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const BILLING_COL1_WIDTH = isMobile ? 160 : 420;
+  const BILLING_COL2_WIDTH = isMobile ? 90 : 110;
+  const EXPENSE_COL1_WIDTH = isMobile ? 200 : 650;
+
   return (
     <div className="space-y-6 max-w-[1600px] mx-auto">
-      <div className="flex bg-white p-1 rounded-xl border shadow-sm w-fit">
-        <button onClick={() => setActiveTab('billing')} className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-xs font-black transition-all ${activeTab === 'billing' ? 'bg-navy text-yellow-accent shadow-md' : 'text-gray-400 hover:text-navy'}`}><ReceiptEuro size={16} /> SUIVI FACTURATION CLIENTS</button>
-        <button onClick={() => setActiveTab('expenses')} className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-xs font-black transition-all ${activeTab === 'expenses' ? 'bg-navy text-yellow-accent shadow-md' : 'text-gray-400 hover:text-navy'}`}><Wallet size={16} /> SUIVI DÉPENSES</button>
-        <button onClick={() => setActiveTab('pl')} className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-xs font-black transition-all ${activeTab === 'pl' ? 'bg-navy text-yellow-accent shadow-md' : 'text-gray-400 hover:text-navy'}`}><BarChart3 size={16} /> SUIVI P&L</button>
-        <button onClick={() => setActiveTab('budget')} className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-xs font-black transition-all ${activeTab === 'budget' ? 'bg-navy text-yellow-accent shadow-md' : 'text-gray-400 hover:text-navy'}`}><Target size={16} /> BUDGET</button>
+      <div className="flex bg-white p-1 rounded-xl border shadow-sm w-full md:w-fit overflow-x-auto no-scrollbar">
+        <button onClick={() => setActiveTab('billing')} className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-xs font-black transition-all shrink-0 ${activeTab === 'billing' ? 'bg-navy text-yellow-accent shadow-md' : 'text-gray-400 hover:text-navy'}`}><ReceiptEuro size={16} /> FACTURATION</button>
+        <button onClick={() => setActiveTab('expenses')} className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-xs font-black transition-all shrink-0 ${activeTab === 'expenses' ? 'bg-navy text-yellow-accent shadow-md' : 'text-gray-400 hover:text-navy'}`}><Wallet size={16} /> DÉPENSES</button>
+        <button onClick={() => setActiveTab('pl')} className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-xs font-black transition-all shrink-0 ${activeTab === 'pl' ? 'bg-navy text-yellow-accent shadow-md' : 'text-gray-400 hover:text-navy'}`}><BarChart3 size={16} /> P&L</button>
+        <button onClick={() => setActiveTab('budget')} className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-xs font-black transition-all shrink-0 ${activeTab === 'budget' ? 'bg-navy text-yellow-accent shadow-md' : 'text-gray-400 hover:text-navy'}`}><Target size={16} /> BUDGET</button>
       </div>
 
       {activeTab === 'billing' && (
@@ -665,45 +677,46 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
             <table className="w-full text-left border-separate border-spacing-0">
               <thead className="sticky top-0 z-50 shadow-sm">
                 <tr className="text-[9px] uppercase font-black text-gray-400 border-b bg-white">
-                  <th className="p-4 border-b border-r bg-white sticky left-0 z-[60] w-[420px] min-w-[420px] shadow-sm">Mission / Client</th>
-                  <th className="p-4 border-b border-r bg-white text-navy sticky left-[420px] z-[60] w-[110px] min-w-[110px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">Total Mission</th>
+                  <th style={{ width: BILLING_COL1_WIDTH, minWidth: BILLING_COL1_WIDTH }} className="p-4 border-b border-r bg-white sticky left-0 z-[60] shadow-sm">Mission / Client</th>
+                  <th style={{ width: BILLING_COL2_WIDTH, minWidth: BILLING_COL2_WIDTH, left: BILLING_COL1_WIDTH }} className="p-4 border-b border-r bg-white text-navy sticky z-[60] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">Total Mission</th>
                   {MONTHS.map(m => <th key={m.id} className="p-4 border-b text-center min-w-[110px] bg-white">{m.label}</th>)}
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {billingRows.map((row) => (
                   <tr key={row.mission.id} className="group hover:bg-navy/5 even:bg-slate-50/50">
-                    <td className="py-2 px-4 border-r sticky left-0 z-30 bg-white group-even:bg-slate-50 group-hover:bg-slate-50 transition-colors shadow-sm w-[420px] min-w-[420px]">
+                    <td style={{ width: BILLING_COL1_WIDTH, minWidth: BILLING_COL1_WIDTH }} className="py-2 px-4 border-r sticky left-0 z-30 bg-white group-even:bg-slate-50 group-hover:bg-slate-50 transition-colors shadow-sm">
                       <div className="flex items-start justify-between group/name">
                         <div className="min-w-0">
                           <div className="font-black text-navy uppercase text-[10px] whitespace-nowrap leading-tight truncate">{row.mission.clientName}</div>
                           <div className="text-[10px] text-gray-500 font-bold whitespace-nowrap mt-1 leading-normal truncate">{row.mission.name}</div>
-                          {row.mission.customerPo && (
+                          {row.mission.customerPo && !isMobile && (
                             <div className="mt-1 flex items-center gap-1.5 text-[8px] font-black text-navy/40 bg-navy/5 px-1.5 py-0.5 rounded w-fit border border-navy/5">
                               <Hash size={10} className="text-yellow-accent" />
                               PO: {row.mission.customerPo}
                             </div>
                           )}
                         </div>
-                        <button 
-                          onClick={() => {
-                            setActivePoMissionId(row.mission.id);
-                            setTempPo(row.mission.customerPo || '');
-                          }}
-                          className={`shrink-0 p-1.5 rounded-lg transition-all ${row.mission.customerPo ? 'text-navy bg-yellow-accent/20 shadow-sm' : 'text-gray-300 opacity-0 group-hover/name:opacity-100 hover:bg-navy hover:text-white'}`}
-                          title="Gérer le numéro de commande (PO)"
-                        >
-                          <Hash size={14} strokeWidth={3} />
-                        </button>
+                        {!isMobile && (
+                          <button 
+                            onClick={() => {
+                              setActivePoMissionId(row.mission.id);
+                              setTempPo(row.mission.customerPo || '');
+                            }}
+                            className={`shrink-0 p-1.5 rounded-lg transition-all ${row.mission.customerPo ? 'text-navy bg-yellow-accent/20 shadow-sm' : 'text-gray-300 opacity-0 group-hover/name:opacity-100 hover:bg-navy hover:text-white'}`}
+                            title="Gérer le numéro de commande (PO)"
+                          >
+                            <Hash size={14} strokeWidth={3} />
+                          </button>
+                        )}
                       </div>
                     </td>
-                    <td className="py-2 px-4 border-r font-black text-navy text-[10px] text-right sticky left-[420px] z-30 bg-white group-even:bg-slate-50 group-hover:bg-slate-50 transition-colors shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] w-[110px] min-w-[110px]">
+                    <td style={{ width: BILLING_COL2_WIDTH, minWidth: BILLING_COL2_WIDTH, left: BILLING_COL1_WIDTH }} className="py-2 px-4 border-r font-black text-navy text-[10px] text-right sticky z-30 bg-white group-even:bg-slate-50 group-hover:bg-slate-50 transition-colors shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
                       <div className="flex flex-col items-end">
-                        <span className="text-gray-400 text-[8px] uppercase tracking-tighter mb-0.5">Contrat Total</span>
                         <span className="border-b border-gray-100 pb-1 w-full text-right">{formatCurrency(row.totalMissionOverall)}</span>
                         <div className="mt-1 flex flex-col items-end opacity-80">
                           <span className="text-navy">{formatCurrency(row.totalFY)}</span>
-                          <span className="text-[7px] text-gray-400 font-black uppercase tracking-tighter mt-0.5 leading-none">Total {globalFY}</span>
+                          <span className="text-[7px] text-gray-400 font-black uppercase tracking-tighter mt-0.5 leading-none">FY</span>
                         </div>
                       </div>
                     </td>
@@ -743,8 +756,8 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
               </tbody>
               <tfoot className="sticky bottom-0 z-50 text-white shadow-[0_-4px_20px_rgba(0,0,0,0.3)]">
                 <tr className="font-black text-[10px] uppercase tracking-widest border-b border-white/5">
-                  <td className="py-1.5 px-4 border-r sticky left-0 z-[60] bg-navy shadow-sm w-[420px] min-w-[420px]">Totaux Mensuels</td>
-                  <td className="py-1.5 px-4 border-r text-right text-yellow-accent sticky left-[420px] z-[60] bg-navy shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] w-[110px] min-w-[110px]">
+                  <td style={{ width: BILLING_COL1_WIDTH, minWidth: BILLING_COL1_WIDTH }} className="py-1.5 px-4 border-r sticky left-0 z-[60] bg-navy shadow-sm">Totaux</td>
+                  <td style={{ width: BILLING_COL2_WIDTH, minWidth: BILLING_COL2_WIDTH, left: BILLING_COL1_WIDTH }} className="py-1.5 px-4 border-r text-right text-yellow-accent sticky z-[60] bg-navy shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
                     {billingRows.reduce((a, b) => a + b.totalFY, 0) === 0 ? <span className="text-white/40">- €</span> : formatCurrency(billingRows.reduce((a, b) => a + b.totalFY, 0))}
                   </td>
                   {monthlyBillingTotals.map((total, i) => (
@@ -775,7 +788,7 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
             <table className="w-full text-left border-separate border-spacing-0">
               <thead className="sticky top-0 z-50 bg-white shadow-sm">
                 <tr className="text-[9px] uppercase font-black text-gray-400 border-b bg-white">
-                  <th className="p-4 border-b border-r bg-white sticky left-0 z-[60] w-[650px] shadow-sm">Catégorie / Famille / Libellé Dépense</th>
+                  <th style={{ width: EXPENSE_COL1_WIDTH, minWidth: EXPENSE_COL1_WIDTH }} className="p-4 border-b border-r bg-white sticky left-0 z-[60] shadow-sm">Catégorie / Famille / Libellé</th>
                   {MONTHS.map(m => <th key={m.id} className="p-4 border-b text-center min-w-[110px] bg-white">{m.label}</th>)}
                   <th className="p-4 border-b border-l text-center bg-gray-50 min-w-[120px]">Total FY</th>
                 </tr>
@@ -785,9 +798,9 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
                   return (
                     <React.Fragment key={cat.id}>
                       <tr className="bg-navy text-white">
-                        <td className="p-4 border-r sticky left-0 z-30 bg-navy font-black text-[11px] uppercase tracking-[0.2em] flex items-center justify-between group shadow-sm w-[650px]">
-                          <div className="flex items-center gap-3"><cat.icon size={16} className="text-yellow-accent" /> {cat.label}</div>
-                          {!isGlobalView && <button type="button" onClick={() => handleAddFamily(cat.id)} className="p-1 hover:bg-white hover:text-navy rounded-md transition-all flex items-center gap-1.5 px-3 border border-white/20 bg-white/10 shadow-sm"><Layers size={10} strokeWidth={4} /> <span className="text-[8px] font-black uppercase">Famille</span></button>}
+                        <td style={{ width: EXPENSE_COL1_WIDTH, minWidth: EXPENSE_COL1_WIDTH }} className="p-4 border-r sticky left-0 z-30 bg-navy font-black text-[11px] uppercase tracking-[0.2em] flex items-center justify-between group shadow-sm">
+                          <div className="flex items-center gap-3"><cat.icon size={16} className="text-yellow-accent" /> <span className="truncate">{cat.label}</span></div>
+                          {!isGlobalView && !isMobile && <button type="button" onClick={() => handleAddFamily(cat.id)} className="p-1 hover:bg-white hover:text-navy rounded-md transition-all flex items-center gap-1.5 px-3 border border-white/20 bg-white/10 shadow-sm"><Layers size={10} strokeWidth={4} /> <span className="text-[8px] font-black uppercase">Famille</span></button>}
                         </td>
                         {calculateCategoryTotals(cat.id).map((v, i) => (
                           <td key={i} className={`p-4 text-center font-black text-[10px] bg-navy ${v < 0 ? 'text-emerald-400' : 'text-white'}`}>

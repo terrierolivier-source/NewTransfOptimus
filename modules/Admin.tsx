@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   Plus, Edit2, Trash2, X, Save, AlertTriangle, 
   Download, Upload, FileJson, FileSpreadsheet, 
@@ -26,7 +26,7 @@ const Admin: React.FC<AdminProps> = ({ state, updateState }) => {
   const [isLoadingBackups, setIsLoadingBackups] = useState(false);
 
   // Fetch backups when tab changes
-  React.useEffect(() => {
+  useEffect(() => {
     if (activeTab === 'backups') {
       setIsLoadingBackups(true);
       getBackups().then(data => {
@@ -337,10 +337,10 @@ const Admin: React.FC<AdminProps> = ({ state, updateState }) => {
   return (
     <div className="space-y-6">
       {/* Tabs */}
-      <div className="flex gap-4 border-b">
+      <div className="flex gap-2 xl:gap-4 border-b overflow-x-auto no-scrollbar whitespace-nowrap -mx-4 px-4 md:mx-0 md:px-0">
         <button
           onClick={() => setActiveTab('collaborators')}
-          className={`pb-4 px-4 font-medium transition-colors ${
+          className={`pb-4 px-3 xl:px-4 text-[10px] md:text-sm font-medium transition-colors ${
             activeTab === 'collaborators' ? 'border-b-2 border-yellow-accent text-navy' : 'text-gray-500 hover:text-navy'
           }`}
         >
@@ -348,7 +348,7 @@ const Admin: React.FC<AdminProps> = ({ state, updateState }) => {
         </button>
         <button
           onClick={() => setActiveTab('holidays')}
-          className={`pb-4 px-4 font-medium transition-colors ${
+          className={`pb-4 px-3 xl:px-4 text-[10px] md:text-sm font-medium transition-colors ${
             activeTab === 'holidays' ? 'border-b-2 border-yellow-accent text-navy' : 'text-gray-500 hover:text-navy'
           }`}
         >
@@ -356,7 +356,7 @@ const Admin: React.FC<AdminProps> = ({ state, updateState }) => {
         </button>
         <button
           onClick={() => setActiveTab('import_export')}
-          className={`pb-4 px-4 font-medium transition-colors ${
+          className={`pb-4 px-3 xl:px-4 text-[10px] md:text-sm font-medium transition-colors ${
             activeTab === 'import_export' ? 'border-b-2 border-yellow-accent text-navy' : 'text-gray-500 hover:text-navy'
           }`}
         >
@@ -364,7 +364,7 @@ const Admin: React.FC<AdminProps> = ({ state, updateState }) => {
         </button>
         <button
           onClick={() => setActiveTab('backups')}
-          className={`pb-4 px-4 font-medium transition-colors ${
+          className={`pb-4 px-3 xl:px-4 text-[10px] md:text-sm font-medium transition-colors ${
             activeTab === 'backups' ? 'border-b-2 border-yellow-accent text-navy' : 'text-gray-500 hover:text-navy'
           }`}
         >
@@ -374,42 +374,54 @@ const Admin: React.FC<AdminProps> = ({ state, updateState }) => {
 
       {activeTab === 'collaborators' && (
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="p-4 bg-gray-50 border-b flex flex-col md:flex-row justify-between items-center gap-4">
-            <div className="flex items-center gap-4 w-full md:w-auto">
-              <div className="flex items-center gap-2">
-                <h2 className="font-bold text-gray-700 uppercase text-xs tracking-wider shrink-0">
-                  Gestion des Collaborateurs
-                </h2>
-                <span className="bg-navy/10 text-navy px-2 py-0.5 rounded-full text-[10px] font-bold">
-                  {processedCollaborators.length}
-                </span>
+          <div className="p-4 bg-gray-50 border-b flex flex-col xl:flex-row justify-between items-center gap-4">
+            <div className="flex flex-col md:flex-row items-center gap-4 w-full xl:w-auto">
+              <div className="flex items-center justify-between w-full md:w-auto gap-2">
+                <div className="flex items-center gap-2">
+                  <h2 className="font-bold text-gray-700 uppercase text-[10px] md:text-xs tracking-wider shrink-0">
+                    Collaborateurs
+                  </h2>
+                  <span className="bg-navy/10 text-navy px-2 py-0.5 rounded-full text-[10px] font-bold">
+                    {processedCollaborators.length}
+                  </span>
+                </div>
+                
+                <button 
+                  onClick={() => setEditingCollaborator(getInitialCollaborator())}
+                  className="flex xl:hidden items-center gap-2 bg-navy text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-navy/90 transition-colors shrink-0"
+                >
+                  <Plus size={14} />
+                  Ajouter
+                </button>
               </div>
               
-              <div className="relative flex-1 md:w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
-                <input 
-                  type="text" 
-                  placeholder="Rechercher Nom, Email, Grade..." 
-                  className="w-full pl-9 pr-4 py-1.5 text-xs border rounded-lg focus:ring-2 focus:ring-yellow-accent outline-none"
-                  value={collaboratorSearch}
-                  onChange={(e) => setCollaboratorSearch(e.target.value)}
-                />
-              </div>
+              <div className="flex items-center gap-2 w-full">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
+                  <input 
+                    type="text" 
+                    placeholder="Nom, Email, Grade..." 
+                    className="w-full pl-9 pr-4 py-1.5 text-[11px] md:text-xs border rounded-lg focus:ring-2 focus:ring-yellow-accent outline-none"
+                    value={collaboratorSearch}
+                    onChange={(e) => setCollaboratorSearch(e.target.value)}
+                  />
+                </div>
 
-              {collaboratorSearch !== '' && (
-                <button 
-                  onClick={() => setCollaboratorSearch('')}
-                  className="flex items-center gap-1.5 px-2 py-1 text-[10px] font-bold text-red-500 hover:bg-red-50 rounded-lg transition-colors border border-red-100 uppercase"
-                >
-                  <FilterX size={12} />
-                  Supprimer
-                </button>
-              )}
+                {collaboratorSearch !== '' && (
+                  <button 
+                    onClick={() => setCollaboratorSearch('')}
+                    className="flex items-center gap-1.5 px-2 py-1.5 text-[10px] font-bold text-red-500 hover:bg-red-50 rounded-lg transition-colors border border-red-100 uppercase shrink-0"
+                  >
+                    <FilterX size={12} />
+                    <span className="hidden sm:inline">Effacer</span>
+                  </button>
+                )}
+              </div>
             </div>
 
             <button 
               onClick={() => setEditingCollaborator(getInitialCollaborator())}
-              className="flex items-center gap-2 bg-navy text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-navy/90 transition-colors shrink-0"
+              className="hidden xl:flex items-center gap-2 bg-navy text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-navy/90 transition-colors shrink-0"
             >
               <Plus size={16} />
               Ajouter
@@ -712,7 +724,7 @@ const Admin: React.FC<AdminProps> = ({ state, updateState }) => {
               <button onClick={() => setEditingCollaborator(null)} className="p-2 hover:bg-gray-200 rounded-full transition-colors"><X size={20} /></button>
             </div>
             <form onSubmit={handleSaveCollaborator} className="p-6 overflow-y-auto space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Prénom</label>
                   <input required type="text" value={editingCollaborator.firstName} onChange={e => setEditingCollaborator({...editingCollaborator, firstName: e.target.value})} className="w-full border rounded-lg px-4 py-2 outline-none focus:ring-2 focus:ring-yellow-accent" />
