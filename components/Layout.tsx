@@ -10,7 +10,8 @@ import {
   Briefcase,
   BadgeEuro,
   ChevronDown,
-  Rocket
+  Rocket,
+  ShieldOff
 } from 'lucide-react';
 import { Country } from '../types';
 
@@ -24,6 +25,7 @@ interface LayoutProps {
   globalFY: string;
   setGlobalFY: (fy: string) => void;
   onLogout: () => void;
+  onLock: () => void;
 }
 
 const COUNTRY_FLAGS: Record<string, string> = {
@@ -41,7 +43,8 @@ const Layout: React.FC<LayoutProps> = ({
   setGlobalCountry,
   globalFY,
   setGlobalFY,
-  onLogout
+  onLogout,
+  onLock
 }) => {
   const menuItems = [
     { id: 'dashboard', label: 'Tableau de bord', icon: LayoutDashboard, permission: true },
@@ -85,13 +88,26 @@ const Layout: React.FC<LayoutProps> = ({
         <div className="p-4 border-t border-brand-white/10">
           <div className="flex items-center justify-between px-4 py-3">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-yellow-accent flex items-center justify-center font-bold text-navy border border-brand-white/10 text-xs">
-                {currentUser.firstName[0]}{currentUser.lastName[0]}
+              {/* Logout icon placed where the avatar/initials were as requested */}
+              <button 
+                onClick={onLogout}
+                title="Déconnexion"
+                className="w-10 h-10 rounded-xl bg-brand-white/5 hover:bg-red-500/20 text-brand-white/40 hover:text-red-400 flex items-center justify-center transition-all group border border-brand-white/5"
+              >
+                <LogOut size={20} className="group-hover:scale-110 transition-transform" />
+              </button>
+              <div className="flex flex-col">
+                <span className="text-[10px] text-brand-white font-bold leading-tight uppercase tracking-tight">{currentUser.firstName} {currentUser.lastName}</span>
+                <span className="text-[8px] text-brand-white/30 font-black uppercase tracking-widest">Session Active</span>
               </div>
-              <span className="text-[10px] text-brand-white/40 font-bold uppercase tracking-tighter">Session Active</span>
             </div>
-            <button onClick={onLogout} className="text-brand-white/60 hover:text-yellow-accent transition-colors">
-              <LogOut size={16} />
+            
+            <button 
+              onClick={onLock} 
+              title="Verrouiller l'application" 
+              className="p-2 rounded-lg text-brand-white/20 hover:text-yellow-accent hover:bg-brand-white/5 transition-all"
+            >
+              <ShieldOff size={16} />
             </button>
           </div>
         </div>

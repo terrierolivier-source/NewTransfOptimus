@@ -4,6 +4,7 @@ import { AppState, User, Role, Country } from './types';
 import { getInitialState, saveState, syncStateToCloud, createDailyBackup, loadStateFromCloud, setupRealtimeSync } from './services/dataService';
 import { onAuthStateChange, signOut, mapSupabaseUserToAppUser, getCurrentSession } from './services/authService';
 import Layout from './components/Layout';
+import AccessGate, { APP_ACCESS_VERSION } from './components/AccessGate';
 import Dashboard from './modules/Dashboard';
 import Admin from './modules/Admin';
 import Missions from './modules/Missions';
@@ -18,6 +19,11 @@ const App: React.FC = () => {
   const [activeModule, setActiveModule] = useState('dashboard');
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<any>(null);
+  const [isAuthorized, setIsAuthorized] = useState(() => {
+    const authorized = localStorage.getItem('optimus_authorized') === 'true';
+    const storedVersion = localStorage.getItem('optimus_access_version');
+    return authorized && storedVersion === APP_ACCESS_VERSION;
+  });
   const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -98,6 +104,11 @@ const App: React.FC = () => {
     }
   };
 
+  const handleLock = () => {
+    localStorage.removeItem('optimus_authorized');
+    setIsAuthorized(false);
+  };
+
   const renderModule = () => {
     switch (activeModule) {
       case 'dashboard':
@@ -130,6 +141,10 @@ const App: React.FC = () => {
     );
   }
 
+  if (!isAuthorized) {
+    return <AccessGate onAuthorize={() => setIsAuthorized(true)} />;
+  }
+
   if (!session) {
     return <LoginPage error={authError} />;
   }
@@ -144,6 +159,7 @@ const App: React.FC = () => {
       globalFY={state.globalFY}
       setGlobalFY={(fy) => updateState({ globalFY: fy })}
       onLogout={handleLogout}
+      onLock={handleLock}
     >
       {renderModule()}
     </Layout>
