@@ -33,9 +33,9 @@ interface LayoutProps {
 }
 
 const COUNTRY_FLAGS: Record<string, string> = {
-  [Country.FRANCE]: '🇫🇷',
-  [Country.SPAIN]: '🇪🇸',
-  [Country.ITALY]: '🇮🇹',
+  [Country.FRANCE]: 'FR',
+  [Country.SPAIN]: 'ES',
+  [Country.ITALY]: 'IT',
 };
 
 const Layout: React.FC<LayoutProps> = ({ 
@@ -193,7 +193,7 @@ const Layout: React.FC<LayoutProps> = ({
             <div className="flex items-center gap-0.5 md:gap-1 bg-brand-gray rounded-full p-0.5 md:p-1 border border-gray-200 shadow-inner">
               <button 
                 onClick={() => setGlobalCountry('Global')}
-                className={`p-1 md:p-1.5 rounded-full transition-all flex items-center justify-center min-w-[28px] md:min-w-[32px] ${globalCountry === 'Global' ? 'bg-navy text-yellow-accent shadow-sm' : 'text-navy/40 hover:text-navy'}`}
+                className={`p-1 md:p-1.5 rounded-full transition-all flex items-center justify-center min-w-[28px] md:min-w-[32px] ${globalCountry === 'Global' ? 'bg-yellow-accent text-navy shadow-sm font-bold' : 'text-navy/40 hover:text-navy'}`}
                 title="Tous les pays (Global)"
               >
                 <Globe size={14} className="md:w-[18px] md:h-[18px]" />
@@ -207,12 +207,12 @@ const Layout: React.FC<LayoutProps> = ({
                   onClick={() => setGlobalCountry(country)}
                   className={`flex items-center justify-center w-7 h-6 md:w-10 md:h-8 rounded-full transition-all duration-200 ${
                     globalCountry === country 
-                    ? 'bg-white shadow-md border border-gray-100 scale-110 z-10' 
-                    : 'opacity-40 hover:opacity-100 grayscale hover:grayscale-0'
+                    ? 'bg-yellow-accent text-navy shadow-md border border-yellow-600/20 scale-110 z-10 font-black' 
+                    : 'text-navy/40 hover:text-navy hover:bg-white/50'
                   }`}
                   title={country}
                 >
-                  <span className="text-base md:text-xl leading-none select-none drop-shadow-sm">{COUNTRY_FLAGS[country]}</span>
+                  <span className="text-[10px] md:text-xs leading-none select-none tracking-tighter">{COUNTRY_FLAGS[country]}</span>
                 </button>
               ))}
             </div>
