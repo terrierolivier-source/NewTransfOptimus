@@ -4,12 +4,24 @@ import {
   Download, Upload, FileJson, FileSpreadsheet, 
   CheckCircle, XCircle, Info, ChevronRight,
   Search, ArrowUpDown, ChevronUp, ChevronDown, FilterX,
-  User as UserIcon, CalendarDays, LogOut, Database, Clock
+  User as UserIcon, CalendarDays, LogOut, Database, Clock,
+  ShieldAlert, List, Server, RefreshCw
 } from 'lucide-react';
 import { AppState, Country, Holiday, User, Mission, MissionStatus, BillingMode, Role, Collaborator, CollaboratorType } from '../types';
 import { generateId, formatDateDisplay } from '../utils';
-import { getBackups, syncCollaboratorToCloud, deleteCollaboratorFromCloud } from '../services/dataService';
+import { getBackups, syncCollaboratorToCloud, deleteCollaboratorFromCloud, loadStateFromCloud } from '../services/dataService';
 import * as XLSX from 'xlsx';
+import { 
+  exportFullBackupJson, 
+  exportFullBackupExcel, 
+  validateBackupJson, 
+  getImportPreview, 
+  importBackupJson, 
+  validateAndParseExcel,
+  FullBackup,
+  ImportPreview,
+  ImportMode
+} from '../services/backupService';
 
 interface AdminProps {
   state: AppState;
@@ -39,10 +51,14 @@ const Admin: React.FC<AdminProps> = ({ state, updateState }) => {
   const [editingHoliday, setEditingHoliday] = useState<Partial<Holiday> | null>(null);
   const [holidayToDelete, setHolidayToDelete] = useState<string | null>(null);
 
-  // Import States
-  const [importType, setImportType] = useState<'collaborators' | 'missions'>('collaborators');
-  const [importData, setImportData] = useState<any[] | null>(null);
-  const [importErrors, setImportErrors] = useState<string[]>([]);
+  // New Backup/Import States
+  const [pendingBackup, setPendingBackup] = useState<FullBackup | null>(null);
+  const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
+  const [importMode, setImportMode] = useState<ImportMode>('fusion');
+  const [restoreConfirmationText, setRestoreConfirmationText] = useState('');
+  const [isRestoreConfirmed, setIsRestoreConfirmed] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{ success: boolean; report: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Collaborator Management States
@@ -173,8 +189,7 @@ const Admin: React.FC<AdminProps> = ({ state, updateState }) => {
     joiningDate: new Date().toISOString().split('T')[0],
   });
 
-  // Export Logic
-  const handleExportJSON = (type: 'collaborators' | 'missions') => {
+  const handleTableExportJSON = (type: 'collaborators' | 'missions') => {
     const data = type === 'collaborators' ? state.collaborators : state.missions;
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -185,53 +200,50 @@ const Admin: React.FC<AdminProps> = ({ state, updateState }) => {
     URL.revokeObjectURL(url);
   };
 
-  const handleExportCSV = (type: 'collaborators' | 'missions') => {
+  const handleTableExportExcel = (type: 'collaborators' | 'missions') => {
     const data = type === 'collaborators' ? state.collaborators : state.missions;
     if (data.length === 0) return;
-    
-    // Simplification : on exporte les objets à plat
-    const headers = Object.keys(data[0]);
-    const csvRows = [
-      headers.join(','),
-      ...data.map(row => headers.map(header => {
-        const val = (row as any)[header];
-        return JSON.stringify(typeof val === 'object' ? JSON.stringify(val) : val);
-      }).join(','))
-    ];
-    
-    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${type}_export_${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleExportExcel = (type: 'collaborators' | 'missions') => {
-    const data = type === 'collaborators' ? state.collaborators : state.missions;
-    if (data.length === 0) return;
-
-    // Nettoyage des données pour l'export Excel (on aplatit les objets complexes)
     const processedData = data.map(item => {
-      const flatItem: any = { ...item };
-      Object.keys(flatItem).forEach(key => {
-        if (typeof flatItem[key] === 'object' && flatItem[key] !== null) {
-          flatItem[key] = JSON.stringify(flatItem[key]);
+      const flat: any = { ...item };
+      Object.keys(flat).forEach(key => {
+        if (typeof flat[key] === 'object' && flat[key] !== null) {
+          flat[key] = JSON.stringify(flat[key]);
         }
       });
-      return flatItem;
+      return flat;
     });
-
     const worksheet = XLSX.utils.json_to_sheet(processedData);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, type === 'collaborators' ? "Collaborateurs" : "Missions");
-    
     XLSX.writeFile(workbook, `${type}_export_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
-  // Import Logic
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Full Export Logics
+  const handleFullExportJSON = async () => {
+    try {
+      const backup = await exportFullBackupJson();
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `OptimusPlan_FullBackup_${new Date().toISOString().split('T')[0]}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      alert("Erreur lors de l'export JSON complet");
+    }
+  };
+
+  const handleFullExportExcel = async () => {
+    try {
+      const wb = await exportFullBackupExcel();
+      XLSX.writeFile(wb, `OptimusPlan_FullBackup_${new Date().toISOString().split('T')[0]}.xlsx`);
+    } catch (error) {
+      alert("Erreur lors de l'export Excel complet");
+    }
+  };
+
+  const handleFileImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -242,96 +254,64 @@ const Admin: React.FC<AdminProps> = ({ state, updateState }) => {
         try {
           const data = new Uint8Array(event.target?.result as ArrayBuffer);
           const workbook = XLSX.read(data, { type: 'array' });
-          const sheetName = workbook.SheetNames[0];
-          const worksheet = workbook.Sheets[sheetName];
-          const json = XLSX.utils.sheet_to_json(worksheet);
-          validateAndSetImportData(json);
+          const backup = validateAndParseExcel(workbook);
+          setPendingBackup(backup);
+          setImportPreview(getImportPreview(backup));
         } catch (err) {
-          setImportErrors(['Erreur lors de la lecture du fichier Excel.']);
+          alert('Erreur lors de la lecture du fichier Excel.');
         }
       };
       reader.readAsArrayBuffer(file);
-    } else {
+    } else if (file.name.endsWith('.json')) {
       reader.onload = (event) => {
-        const content = event.target?.result as string;
         try {
-          if (file.name.endsWith('.json')) {
-            const parsed = JSON.parse(content);
-            validateAndSetImportData(parsed);
-          } else if (file.name.endsWith('.csv')) {
-            const lines = content.split('\n').filter(l => l.trim() !== '');
-            const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
-            const data = lines.slice(1).map(line => {
-              const values = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(v => v.trim().replace(/^"|"$/g, ''));
-              const obj: any = {};
-              headers.forEach((header, i) => {
-                let val = values[i];
-                // Tentative de dé-sérialisation JSON pour les champs complexes
-                try { if (val.startsWith('{') || val.startsWith('[')) val = JSON.parse(val); } catch(e) {}
-                obj[header] = val;
-              });
-              return obj;
-            });
-            validateAndSetImportData(data);
+          const content = JSON.parse(event.target?.result as string);
+          const { valid, error, backup } = validateBackupJson(content);
+          if (valid && backup) {
+            setPendingBackup(backup);
+            setImportPreview(getImportPreview(backup));
+          } else {
+            alert(`Fichier JSON invalide: ${error}`);
           }
         } catch (err) {
-          setImportErrors(['Erreur lors du parsing du fichier. Assurez-vous du format CSV ou JSON valide.']);
+          alert('Erreur lors du parsing du fichier JSON.');
         }
       };
       reader.readAsText(file);
+    } else {
+      alert('Format de fichier non supporté. Veuillez utiliser JSON ou Excel.');
     }
   };
 
-  const validateAndSetImportData = (data: any[]) => {
-    const errors: string[] = [];
-    const validData: any[] = [];
+  const executeImport = async () => {
+    if (!pendingBackup) return;
 
-    if (!Array.isArray(data)) {
-      errors.push('Le fichier doit contenir une liste d\'objets.');
-    } else {
-      data.forEach((item, index) => {
-        if (importType === 'collaborators') {
-          if (!item.firstName || !item.lastName || !item.email) {
-            errors.push(`Ligne ${index + 1}: Champs obligatoires manquants (Prénom, Nom, Email).`);
-          } else {
-            validData.push({
-              ...item,
-              id: item.id || crypto.randomUUID(),
-              active: item.active !== undefined ? (typeof item.active === 'boolean' ? item.active : item.active === 'true' || item.active === 1) : true,
-              joiningDate: item.joiningDate || new Date().toISOString().split('T')[0],
-              collaboratorType: item.collaboratorType || CollaboratorType.INTERNAL
-            });
-          }
-        } else {
-          if (!item.clientName || !item.name) {
-            errors.push(`Ligne ${index + 1}: Champs obligatoires manquants (Client, Mission).`);
-          } else {
-            validData.push({
-              ...item,
-              id: item.id || generateId(),
-              status: item.status || MissionStatus.EN_COURS,
-              active: item.active !== undefined ? (typeof item.active === 'boolean' ? item.active : item.active === 'true' || item.active === 1) : true,
-              billingMode: item.billingMode || BillingMode.FORFAIT
-            });
-          }
-        }
-      });
+    if (importMode === 'restore') {
+      if (restoreConfirmationText !== 'RESTAURER' || !isRestoreConfirmed) {
+        alert("Veuillez remplir les confirmations pour la restauration complète.");
+        return;
+      }
     }
 
-    setImportErrors(errors);
-    setImportData(validData);
-  };
+    setIsImporting(true);
+    setImportResult(null);
 
-  const applyImport = () => {
-    if (!importData) return;
-    if (importType === 'collaborators') {
-      updateState({ collaborators: [...state.collaborators, ...importData] });
-    } else {
-      updateState({ missions: [...state.missions, ...importData] });
+    const result = await importBackupJson(pendingBackup, importMode);
+    
+    setImportResult(result);
+    setIsImporting(false);
+
+    if (result.success) {
+      // Refresh the local state from the newly imported cloud data
+      const cloudState = await loadStateFromCloud();
+      updateState(cloudState);
+      
+      // Reset after success
+      setPendingBackup(null);
+      setImportPreview(null);
+      setRestoreConfirmationText('');
+      setIsRestoreConfirmed(false);
     }
-    setImportData(null);
-    setImportErrors([]);
-    alert('Importation réussie !');
   };
 
   return (
@@ -539,90 +519,281 @@ const Admin: React.FC<AdminProps> = ({ state, updateState }) => {
 
       {/* Import / Export Tab */}
       {activeTab === 'import_export' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          {/* Export */}
-          <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm space-y-6">
-            <div className="flex items-center gap-2 mb-4">
-              <Download className="text-navy" size={24} />
-              <h3 className="text-lg font-bold text-navy">Exportation de données</h3>
-            </div>
-            <div className="space-y-4">
-              <div className="p-4 border rounded-xl hover:border-navy transition-colors">
-                <h4 className="font-bold text-navy mb-1">Collaborateurs</h4>
-                <p className="text-xs text-gray-500 mb-4">Exportez la liste complète des collaborateurs.</p>
-                <div className="flex flex-wrap gap-2">
-                  <button onClick={() => handleExportJSON('collaborators')} className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-xs font-bold transition-colors">
-                    <FileJson size={14} /> JSON
-                  </button>
-                  <button onClick={() => handleExportCSV('collaborators')} className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-xs font-bold transition-colors">
-                    <FileSpreadsheet size={14} /> CSV
-                  </button>
-                  <button onClick={() => handleExportExcel('collaborators')} className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg text-xs font-bold transition-colors border border-emerald-100">
-                    <FileSpreadsheet size={14} /> EXCEL (XLSX)
-                  </button>
+        <div className="space-y-8">
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+            {/* Export Section */}
+            <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm space-y-6">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="p-2 bg-navy/5 rounded-lg text-navy">
+                  <Download size={24} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-navy leading-none">Sauvegarde Complète</h3>
+                  <p className="text-xs text-gray-400 mt-1">Exportez l'intégralité des données métier de l'application.</p>
                 </div>
               </div>
-              <div className="p-4 border rounded-xl hover:border-navy transition-colors">
-                <h4 className="font-bold text-navy mb-1">Missions & Staffing</h4>
-                <p className="text-xs text-gray-500 mb-4">Exportez toutes les missions.</p>
-                <div className="flex flex-wrap gap-2">
-                  <button onClick={() => handleExportJSON('missions')} className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-xs font-bold transition-colors">
-                    <FileJson size={14} /> JSON
-                  </button>
-                  <button onClick={() => handleExportCSV('missions')} className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-xs font-bold transition-colors">
-                    <FileSpreadsheet size={14} /> CSV
-                  </button>
-                  <button onClick={() => handleExportExcel('missions')} className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg text-xs font-bold transition-colors border border-emerald-100">
-                    <FileSpreadsheet size={14} /> EXCEL (XLSX)
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
 
-          {/* Import */}
-          <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm space-y-6">
-            <div className="flex items-center gap-2 mb-4">
-              <Upload className="text-navy" size={24} />
-              <h3 className="text-lg font-bold text-navy">Importation de données</h3>
-            </div>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Type d'entité</label>
-                <div className="flex gap-2">
-                  <button onClick={() => { setImportType('collaborators'); setImportData(null); }} className={`flex-1 px-4 py-2 rounded-lg font-bold text-xs transition-colors ${importType === 'collaborators' ? 'bg-navy text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>Collaborateurs</button>
-                  <button onClick={() => { setImportType('missions'); setImportData(null); }} className={`flex-1 px-4 py-2 rounded-lg font-bold text-xs transition-colors ${importType === 'missions' ? 'bg-navy text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>Missions</button>
-                </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                <button 
+                  onClick={handleFullExportJSON}
+                  className="flex flex-col items-start p-4 border border-gray-100 rounded-xl hover:border-navy hover:bg-navy/5 transition-all text-left group"
+                >
+                  <FileJson size={20} className="text-navy/40 mb-2 group-hover:text-navy transition-colors" />
+                  <span className="font-bold text-sm text-navy uppercase tracking-wider">Format JSON</span>
+                  <span className="text-[10px] text-gray-400 mt-1 leading-tight">Recommandé pour les restaurations complètes. Contient toutes les tables.</span>
+                </button>
+
+                <button 
+                  onClick={handleFullExportExcel}
+                  className="flex flex-col items-start p-4 border border-gray-100 rounded-xl hover:border-emerald-600 hover:bg-emerald-50 transition-all text-left group"
+                >
+                  <FileSpreadsheet size={20} className="text-emerald-500/40 mb-2 group-hover:text-emerald-500 transition-colors" />
+                  <span className="font-bold text-sm text-emerald-700 uppercase tracking-wider">Format Excel</span>
+                  <span className="text-[10px] text-gray-400 mt-1 leading-tight">Fichier .xlsx multi-onglets. Idéal pour consultation et corrections manuelles.</span>
+                </button>
               </div>
-              <div onClick={() => fileInputRef.current?.click()} className="border-2 border-dashed border-gray-200 rounded-xl p-8 flex flex-col items-center justify-center gap-3 cursor-pointer hover:border-navy hover:bg-navy/5 transition-all group">
-                <div className="w-12 h-12 bg-gray-50 rounded-full flex items-center justify-center group-hover:bg-navy/10 transition-colors"><Upload size={24} className="text-gray-400 group-hover:text-navy" /></div>
-                <div className="text-center">
-                  <p className="text-sm font-bold text-navy">Cliquez pour importer</p>
-                  <p className="text-[10px] text-gray-400">JSON, CSV ou EXCEL (.xlsx, .xls)</p>
-                </div>
-                <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".json,.csv,.xlsx,.xls" className="hidden" />
-              </div>
-              {importData && (
-                <div className="p-4 bg-gray-50 rounded-xl border space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-green-600">
-                      <CheckCircle size={18} />
-                      <span className="text-xs font-bold uppercase">Prévisualisation ({importData.length})</span>
+
+              <div className="p-4 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Exports Spécifiques</h4>
+                <div className="space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-navy/70">Collaborateurs</span>
+                    <div className="flex gap-2">
+                      <button onClick={() => handleTableExportJSON('collaborators')} className="p-1.5 bg-white border border-gray-100 rounded hover:bg-gray-50 text-navy transition-colors" title="JSON"><FileJson size={14} /></button>
+                      <button onClick={() => handleTableExportExcel('collaborators')} className="p-1.5 bg-emerald-50 border border-emerald-100 rounded hover:bg-emerald-100 text-emerald-700 transition-colors" title="Excel"><FileSpreadsheet size={14} /></button>
                     </div>
-                    <button onClick={() => setImportData(null)} className="text-gray-400 hover:text-navy"><X size={16} /></button>
                   </div>
-                  {importErrors.length > 0 && (
-                    <div className="p-3 bg-red-50 border border-red-100 rounded-lg space-y-1">
-                      {importErrors.map((err, i) => <p key={i} className="text-[9px] text-red-500">{err}</p>)}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-navy/70">Missions & Staffing</span>
+                    <div className="flex gap-2">
+                      <button onClick={() => handleTableExportJSON('missions')} className="p-1.5 bg-white border border-gray-100 rounded hover:bg-gray-50 text-navy transition-colors" title="JSON"><FileJson size={14} /></button>
+                      <button onClick={() => handleTableExportExcel('missions')} className="p-1.5 bg-emerald-50 border border-emerald-100 rounded hover:bg-emerald-100 text-emerald-700 transition-colors" title="Excel"><FileSpreadsheet size={14} /></button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-4 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Tables incluses dans le Full Backup</h4>
+                <div className="flex flex-wrap gap-2">
+                  {['Collaborateurs', 'Missions', 'Planning', 'Temps', 'Budgets', 'Configuration', 'Utilisateurs (legacy)'].map(t => (
+                    <span key={t} className="px-2 py-1 bg-white border border-gray-100 rounded text-[9px] font-bold text-navy/60 uppercase tracking-tighter">{t}</span>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Import Section */}
+            <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm space-y-6">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="p-2 bg-yellow-accent/10 rounded-lg text-yellow-600">
+                  <Upload size={24} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-navy leading-none">Restauration & Import</h3>
+                  <p className="text-xs text-gray-400 mt-1">Importez des données au format JSON ou Excel.</p>
+                </div>
+              </div>
+
+              {!pendingBackup ? (
+                <div 
+                  onClick={() => fileInputRef.current?.click()}
+                  className="border-2 border-dashed border-gray-100 rounded-2xl p-10 flex flex-col items-center justify-center gap-4 cursor-pointer hover:border-navy hover:bg-navy/5 transition-all group bg-gray-50"
+                >
+                  <div className="w-16 h-16 bg-white rounded-2xl shadow-sm flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <Upload size={32} className="text-navy/20 group-hover:text-navy transition-colors" />
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm font-bold text-navy">Sélectionnez un fichier</p>
+                    <p className="text-[10px] text-gray-400 mt-1 uppercase tracking-widest font-bold">JSON ou .xlsx</p>
+                  </div>
+                  <input type="file" ref={fileInputRef} onChange={handleFileImport} accept=".json,.xlsx,.xls" className="hidden" />
+                </div>
+              ) : (
+                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                  {/* Preview UI */}
+                  <div className="bg-navy rounded-xl overflow-hidden shadow-xl text-white">
+                    <div className="p-4 bg-navy-light flex items-center justify-between border-b border-white/10">
+                      <div className="flex items-center gap-2">
+                        <List size={18} className="text-yellow-accent" />
+                        <h4 className="text-sm font-bold uppercase tracking-wider">Prévisualisation de l'import</h4>
+                      </div>
+                      <button onClick={() => { setPendingBackup(null); setImportPreview(null); }} className="hover:text-yellow-accent transition-colors">
+                        <X size={18} />
+                      </button>
+                    </div>
+                    
+                    <div className="p-5 space-y-4">
+                      {importPreview && (
+                        <>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                            <div className="bg-white/5 rounded-lg p-2.5 text-center">
+                              <span className="block text-[10px] text-white/40 uppercase font-black">Collabs</span>
+                              <span className="text-lg font-black text-yellow-accent">{importPreview.summary.collaborators}</span>
+                            </div>
+                            <div className="bg-white/5 rounded-lg p-2.5 text-center">
+                              <span className="block text-[10px] text-white/40 uppercase font-black">Missions</span>
+                              <span className="text-lg font-black text-yellow-accent">{importPreview.summary.missions}</span>
+                            </div>
+                            <div className="bg-white/5 rounded-lg p-2.5 text-center">
+                              <span className="block text-[10px] text-white/40 uppercase font-black">Planning</span>
+                              <span className="text-lg font-black text-yellow-accent">{importPreview.summary.planning}</span>
+                            </div>
+                            <div className="bg-white/5 rounded-lg p-2.5 text-center">
+                              <span className="block text-[10px] text-white/40 uppercase font-black">Timesheets</span>
+                              <span className="text-lg font-black text-yellow-accent">{importPreview.summary.timesheets}</span>
+                            </div>
+                            <div className="bg-white/5 rounded-lg p-2.5 text-center">
+                              <span className="block text-[10px] text-white/40 uppercase font-black">Budgets</span>
+                              <span className="text-lg font-black text-yellow-accent">{importPreview.summary.budget_data}</span>
+                            </div>
+                            <div className="bg-white/5 rounded-lg p-2.5 text-center">
+                              <span className="block text-[10px] text-white/40 uppercase font-black">Config</span>
+                              <span className="text-lg font-black text-yellow-accent">{importPreview.summary.config}</span>
+                            </div>
+                          </div>
+
+                          {importPreview.warnings.length > 0 && (
+                            <div className="bg-yellow-accent/10 border border-yellow-accent/20 rounded-lg p-3 space-y-1.5">
+                              <div className="flex items-center gap-1.5 text-yellow-accent">
+                                <AlertTriangle size={14} />
+                                <span className="text-[10px] font-bold uppercase tracking-wider">Avertissements ({importPreview.warnings.length})</span>
+                              </div>
+                              <div className="max-h-24 overflow-y-auto no-scrollbar space-y-1">
+                                {importPreview.warnings.slice(0, 10).map((w, i) => (
+                                  <p key={i} className="text-[9px] text-yellow-accent/80 leading-tight">• {w}</p>
+                                ))}
+                                {importPreview.warnings.length > 10 && <p className="text-[9px] text-yellow-accent/60">...et {importPreview.warnings.length - 10} autres</p>}
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      )}
+
+                      <div className="pt-2">
+                        <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-3">Méthode d'importation</label>
+                        <div className="flex gap-2">
+                          <button 
+                            onClick={() => setImportMode('fusion')}
+                            className={`flex-1 flex flex-col items-center p-3 rounded-xl border-2 transition-all ${importMode === 'fusion' ? 'bg-navy-light border-yellow-accent text-yellow-accent' : 'bg-white/5 border-white/10 text-white/40 grayscale hover:grayscale-0'}`}
+                          >
+                            <RefreshCw size={20} className="mb-1" />
+                            <span className="text-xs font-bold uppercase tracking-wide">Fusion</span>
+                            <span className="text-[9px] opacity-60">Mise à jour (Upsert)</span>
+                          </button>
+                          <button 
+                            onClick={() => setImportMode('restore')}
+                            className={`flex-1 flex flex-col items-center p-3 rounded-xl border-2 transition-all ${importMode === 'restore' ? 'bg-red-500/20 border-red-500 text-red-100' : 'bg-white/5 border-white/10 text-white/40 grayscale hover:grayscale-0'}`}
+                          >
+                            <ShieldAlert size={20} className="mb-1" />
+                            <span className="text-xs font-bold uppercase tracking-wide">Restauration</span>
+                            <span className="text-[9px] opacity-60">Remplacement complet</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Destructive Confirmation UI */}
+                  {importMode === 'restore' && (
+                    <div className="bg-red-50 border border-red-200 rounded-xl p-5 space-y-4 animate-in zoom-in duration-300">
+                      <div className="flex items-start gap-3">
+                        <div className="p-2 bg-red-100 rounded-lg text-red-600">
+                          <ShieldAlert size={24} />
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-bold text-red-800 uppercase tracking-wider">Avertissement Critique</h4>
+                          <p className="text-xs text-red-700 leading-relaxed mt-1">
+                            La restauration complète supprimera TOUTES les données métier existantes (missions, planning, collaborateurs, budgets) pour les remplacer par celles du fichier.
+                          </p>
+                        </div>
+                      </div>
+                      
+                      <div className="space-y-4">
+                        <div className="flex items-center gap-3 cursor-pointer">
+                          <input 
+                            type="checkbox" 
+                            id="understand-replacement" 
+                            checked={isRestoreConfirmed} 
+                            onChange={e => setIsRestoreConfirmed(e.target.checked)}
+                            className="w-5 h-5 rounded border-red-300 text-red-600 focus:ring-red-500" 
+                          />
+                          <label htmlFor="understand-replacement" className="text-xs font-bold text-red-800 select-none">
+                            J'ai compris que cette action remplace les données métier existantes.
+                          </label>
+                        </div>
+
+                        {isRestoreConfirmed && (
+                          <div className="space-y-2">
+                            <label className="block text-[10px] font-bold text-red-400 uppercase tracking-widest pl-1">Tapez "RESTAURER" pour confirmer</label>
+                            <input 
+                              type="text"
+                              value={restoreConfirmationText}
+                              onChange={e => setRestoreConfirmationText(e.target.value)}
+                              placeholder="RESTAURER"
+                              className="w-full bg-white border border-red-200 text-red-600 font-black px-4 py-3 rounded-lg outline-none focus:ring-2 focus:ring-red-500 text-center"
+                            />
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
-                  <button disabled={importErrors.length > 0} onClick={applyImport} className="w-full py-2 bg-navy text-white rounded-lg font-bold text-sm shadow-md hover:bg-navy/90">Confirmer l'importation</button>
+
+                  <div className="flex gap-3 pt-2">
+                    <button 
+                      onClick={() => { setPendingBackup(null); setImportPreview(null); setRestoreConfirmationText(''); setIsRestoreConfirmed(false); }}
+                      className="flex-1 px-4 py-3 border border-gray-200 rounded-xl font-bold text-gray-500 hover:bg-gray-50 transition-colors uppercase text-xs tracking-widest"
+                      disabled={isImporting}
+                    >
+                      Annuler
+                    </button>
+                    <button 
+                      onClick={executeImport}
+                      disabled={isImporting || (importMode === 'restore' && (restoreConfirmationText !== 'RESTAURER' || !isRestoreConfirmed))}
+                      className={`flex-3 px-6 py-3 rounded-xl font-bold text-white shadow-lg transition-all flex items-center justify-center gap-2 uppercase text-xs tracking-widest ${
+                        isImporting ? 'bg-gray-400' : importMode === 'restore' ? 'bg-red-600 hover:bg-red-700' : 'bg-navy hover:bg-navy-light'
+                      }`}
+                    >
+                      {isImporting ? (
+                        <>
+                          <RefreshCw size={18} className="animate-spin" />
+                          Importation en cours...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle size={18} />
+                          Confirmer l'importation
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
           </div>
+
+          {/* Import Result Feedback */}
+          {importResult && (
+            <div className={`p-6 rounded-2xl border flex items-start gap-4 animate-in slide-in-from-top-4 duration-500 ${
+              importResult.success ? 'bg-green-50 border-green-100 text-green-800' : 'bg-red-50 border-red-100 text-red-800'
+            }`}>
+              <div className={`p-2 rounded-xl ${importResult.success ? 'bg-green-100' : 'bg-red-100'}`}>
+                {importResult.success ? <CheckCircle size={24} /> : <XCircle size={24} />}
+              </div>
+              <div className="flex-1">
+                <div className="flex justify-between items-start">
+                  <h4 className="font-black uppercase tracking-widest text-sm mb-2">{importResult.success ? 'Importation Terminée' : 'Erreur d\'Importation'}</h4>
+                  <button onClick={() => setImportResult(null)} className="opacity-40 hover:opacity-100"><X size={20} /></button>
+                </div>
+                <pre className="text-xs font-mono whitespace-pre-wrap opacity-80 leading-relaxed bg-white/50 p-4 rounded-xl border border-current/10">
+                  {importResult.report}
+                </pre>
+              </div>
+            </div>
+          )}
         </div>
       )}
+
 
       {/* Backups Tab */}
       {activeTab === 'backups' && (
