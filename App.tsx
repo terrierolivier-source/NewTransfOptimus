@@ -20,6 +20,7 @@ const App: React.FC = () => {
   const [state, setState] = useState<AppState>(getInitialState());
   const [activeModule, setActiveModule] = useState('dashboard');
   const [loading, setLoading] = useState(true);
+  const [isInitialLoadComplete, setIsInitialLoadComplete] = useState(false);
   const [session, setSession] = useState<any>(null);
   const [isAuthorized, setIsAuthorized] = useState(() => {
     const authorized = localStorage.getItem('optimus_authorized') === 'true';
@@ -35,71 +36,84 @@ const App: React.FC = () => {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [pendingChanges, setPendingChanges] = useState(0);
 
+  // Refs for logic to avoid stale closures in effects
+  const isInitialLoadCompleteRef = React.useRef(false);
+  const pendingChangesRef = React.useRef(0);
+
+  // Sync refs with state
+  useEffect(() => {
+    isInitialLoadCompleteRef.current = isInitialLoadComplete;
+    pendingChangesRef.current = pendingChanges;
+  }, [isInitialLoadComplete, pendingChanges]);
+
   useEffect(() => {
     let unsubs: (() => void)[] = [];
-    let isInitialized = false;
 
     const handleSession = async (event: string, currentSession: any) => {
-      // Avoid processing the same session state twice if possible
-      // but we need to handle transitions.
+      console.log(`[Auth] Event: ${event}`);
       
-      const shouldReload = ['INITIAL_SESSION', 'SIGNED_IN'].includes(event);
+      const isSignificantEvent = ['INITIAL_SESSION', 'SIGNED_IN'].includes(event);
       
-      if (!shouldReload && session) {
-        // Just Update session without reloading everything if it's just a token refresh
+      if (!isSignificantEvent && currentSession) {
         setSession(currentSession);
         return;
       }
 
-      // Cleanup previous listeners
-      unsubs.forEach(u => u());
-      unsubs = [];
-
       if (!currentSession) {
         setSession(null);
         setLoading(false);
+        setIsInitialLoadComplete(true); 
         return;
       }
 
       setSession(currentSession);
       
       try {
-        // Guard against race conditions and overwriting fresh local data
-        const isPendingSync = localStorage.getItem('optimus_pending_sync') === 'true';
-        if (pendingChanges > 0 || isPendingSync) {
-          console.log("Skipping cloud reload: pending changes detected (local or persistent flag).");
+        const stillPendingInStorage = localStorage.getItem('optimus_pending_sync') === 'true';
+        
+        // Anti-overwriting guard: skip reload if we have unsaved local changes
+        // except for the very first load of the application.
+        if (isInitialLoadCompleteRef.current && (pendingChangesRef.current > 0 || stillPendingInStorage)) {
+          console.log("[Auth] Skipping cloud reload: local state is newer/dirty.");
           return;
         }
 
-        // Initial load from cloud
+        console.log("[Auth] Loading data from Supabase...");
         const cloudData = await loadStateFromCloud();
         
         setState(prev => {
           // Double check inside setState to be absolutely sure
-          const stillPending = localStorage.getItem('optimus_pending_sync') === 'true';
-          if (pendingChanges > 0 || stillPending) return prev;
+          const currentPending = localStorage.getItem('optimus_pending_sync') === 'true';
+          if (isInitialLoadCompleteRef.current && (pendingChangesRef.current > 0 || currentPending)) {
+            console.log("[Auth] Aborting state merge: local changes detected during load.");
+            return prev;
+          }
 
           const newState = { ...prev, ...cloudData };
           const appUser = mapSupabaseUserToAppUser(currentSession.user);
-          
           const existingUser = newState.users.find(u => u.email === appUser.email);
+          
           return { 
             ...newState, 
             currentUser: existingUser || appUser 
           };
         });
 
-        // Real-time sync
+        console.log("[Auth] Cloud load successful.");
+        setIsInitialLoadComplete(true);
+
+        // Real-time sync setup
+        unsubs.forEach(u => u());
+        unsubs = [];
         const newUnsubs = setupRealtimeSync(setState);
         unsubs.push(...newUnsubs);
       } catch (err) {
-        console.error("Error during session data load", err);
+        console.error("[Auth] Data load error", err);
       } finally {
         setLoading(false);
       }
     };
 
-    // onAuthStateChange will trigger handleSession with the current session immediately
     const authSubscription = onAuthStateChange((event, newSession) => {
       handleSession(event, newSession);
     });
@@ -108,11 +122,15 @@ const App: React.FC = () => {
       authSubscription.unsubscribe();
       unsubs.forEach(u => u());
     };
-  }, []);
+  }, []); // Only once on mount
 
   useEffect(() => {
     saveState(state);
-    if (session) {
+    
+    // Safety check: don't sync if load not complete or state is empty
+    const isStateEmpty = state.missions.length === 0 && state.collaborators.length === 0;
+    
+    if (session && isInitialLoadComplete && !isStateEmpty) {
       setSaveStatus('idle');
       setPendingChanges(prev => prev + 1);
       localStorage.setItem('optimus_pending_sync', 'true');
@@ -123,19 +141,18 @@ const App: React.FC = () => {
           await syncStateToCloud(state);
           
           localStorage.removeItem('optimus_pending_sync');
-          setPendingChanges(0); // All changes up to this save are persisted
+          setPendingChanges(0); 
           setSaveStatus('saved');
           
-          // Clear status after 2 seconds
           setTimeout(() => setSaveStatus(prev => prev === 'saved' ? 'idle' : prev), 2000);
         } catch (err) {
-          console.error("Auto-save failed", err);
+          console.error("[Sync] Auto-save failed", err);
           setSaveStatus('error');
         }
       }, 5000);
       return () => clearTimeout(timer);
     }
-  }, [state, session]);
+  }, [state, session, isInitialLoadComplete]);
 
   const updateState = (newState: Partial<AppState>) => {
     setState(prev => ({ ...prev, ...newState }));
