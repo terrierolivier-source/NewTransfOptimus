@@ -21,6 +21,7 @@ const App: React.FC = () => {
   const [activeModule, setActiveModule] = useState('dashboard');
   const [loading, setLoading] = useState(true);
   const [isInitialLoadComplete, setIsInitialLoadComplete] = useState(false);
+  const [isCloudLoading, setIsCloudLoading] = useState(false);
   const [session, setSession] = useState<any>(null);
   const [isAuthorized, setIsAuthorized] = useState(() => {
     const authorized = localStorage.getItem('optimus_authorized') === 'true';
@@ -60,32 +61,46 @@ const App: React.FC = () => {
       }
 
       if (!currentSession) {
+        console.log("[Auth] No session found. Cleaning up.");
         setSession(null);
         setLoading(false);
-        setIsInitialLoadComplete(true); 
+        setIsInitialLoadComplete(false);
+        isInitialLoadCompleteRef.current = false;
         return;
       }
 
       setSession(currentSession);
       
+      const authorized = localStorage.getItem('optimus_authorized') === 'true';
+      if (!authorized) {
+        console.log("[Auth] Waiting for AccessGate authorization...");
+        setLoading(false);
+        return;
+      }
+
+      await triggerInitialLoad(currentSession);
+    };
+
+    const triggerInitialLoad = async (currentSession: any) => {
+      if (isInitialLoadCompleteRef.current || isCloudLoading) return;
+      
+      setIsCloudLoading(true);
       try {
         const stillPendingInStorage = localStorage.getItem('optimus_pending_sync') === 'true';
         
-        // Anti-overwriting guard: skip reload if we have unsaved local changes
-        // except for the very first load of the application.
+        // Anti-overwriting guard
         if (isInitialLoadCompleteRef.current && (pendingChangesRef.current > 0 || stillPendingInStorage)) {
-          console.log("[Auth] Skipping cloud reload: local state is newer/dirty.");
+          console.log("[Init] Skipping cloud reload: local state is newer/dirty.");
           return;
         }
 
-        console.log("[Auth] Loading data from Supabase...");
+        console.log("[Init] Loading data from Supabase...");
         const cloudData = await loadStateFromCloud();
         
         setState(prev => {
-          // Double check inside setState to be absolutely sure
           const currentPending = localStorage.getItem('optimus_pending_sync') === 'true';
           if (isInitialLoadCompleteRef.current && (pendingChangesRef.current > 0 || currentPending)) {
-            console.log("[Auth] Aborting state merge: local changes detected during load.");
+            console.log("[Init] Aborting state merge: local changes detected during load.");
             return prev;
           }
 
@@ -93,13 +108,14 @@ const App: React.FC = () => {
           const appUser = mapSupabaseUserToAppUser(currentSession.user);
           const existingUser = newState.users.find(u => u.email === appUser.email);
           
+          console.log("[Init] Cloud data received and applied to state.");
           return { 
             ...newState, 
             currentUser: existingUser || appUser 
           };
         });
 
-        console.log("[Auth] Cloud load successful.");
+        console.log("[Init] Initial load complete.");
         setIsInitialLoadComplete(true);
 
         // Real-time sync setup
@@ -108,8 +124,9 @@ const App: React.FC = () => {
         const newUnsubs = setupRealtimeSync(setState);
         unsubs.push(...newUnsubs);
       } catch (err) {
-        console.error("[Auth] Data load error", err);
+        console.error("[Init] Data load error", err);
       } finally {
+        setIsCloudLoading(false);
         setLoading(false);
       }
     };
@@ -180,6 +197,36 @@ const App: React.FC = () => {
     setIsAdminAuthorized(false);
   };
 
+  // Re-trigger load when authorization is granted
+  useEffect(() => {
+    if (isAuthorized && session && !isInitialLoadComplete && !isCloudLoading) {
+      console.log("[Init] Access granted, triggering cloud load.");
+      // We don't have access to the inner function triggerInitialLoad here easily if we want to keep things clean.
+      // Easiest is to force a re-render or use a signal.
+      // But actually handleSession would have skipped it because isAuthorized was false.
+      // So we can just try to load here.
+      const load = async () => {
+        setIsCloudLoading(true);
+        try {
+          const cloudData = await loadStateFromCloud();
+          setState(prev => {
+            const newState = { ...prev, ...cloudData };
+            const appUser = mapSupabaseUserToAppUser(session.user);
+            const existingUser = newState.users.find(u => u.email === appUser.email);
+            return { ...newState, currentUser: existingUser || appUser };
+          });
+          setIsInitialLoadComplete(true);
+          console.log("[Init] Manual load after access granted complete.");
+        } catch(e) {
+          console.error("Load after access failed", e);
+        } finally {
+          setIsCloudLoading(false);
+        }
+      };
+      load();
+    }
+  }, [isAuthorized, session, isInitialLoadComplete]);
+
   const renderModule = () => {
     switch (activeModule) {
       case 'dashboard':
@@ -207,12 +254,12 @@ const App: React.FC = () => {
     }
   };
 
-  if (loading) {
+  if (loading || (isAuthorized && session && !isInitialLoadComplete)) {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-brand-gray space-y-4">
         <div className="w-12 h-12 border-4 border-navy border-t-transparent rounded-full animate-spin"></div>
-        <p className="font-bold text-navy animate-pulse uppercase tracking-widest text-xs">
-          Initialisation sécurisée...
+        <p className="font-bold text-navy animate-pulse uppercase tracking-widest text-[10px]">
+          {isCloudLoading ? 'Chargement des données Supabase...' : 'Initialisation sécurisée...'}
         </p>
       </div>
     );
