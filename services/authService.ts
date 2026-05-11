@@ -33,9 +33,9 @@ export const signInAnonymously = async () => {
   return data;
 };
 
-export const onAuthStateChange = (callback: (session: any) => void) => {
-  const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-    callback(session);
+export const onAuthStateChange = (callback: (event: string, session: any) => void) => {
+  const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    callback(event, session);
   });
   return subscription;
 };

@@ -14,6 +14,7 @@ import Planning from './modules/Planning';
 import Availability from './modules/Availability';
 import BudgetTracking from './modules/BudgetTracking';
 import LoginPage from './components/LoginPage';
+import { CheckCircle, AlertTriangle, RefreshCw } from 'lucide-react';
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>(getInitialState());
@@ -31,15 +32,25 @@ const App: React.FC = () => {
     return adminAuthorized && storedAdminVersion === ADMIN_ACCESS_VERSION;
   });
   const [authError, setAuthError] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [pendingChanges, setPendingChanges] = useState(0);
 
   useEffect(() => {
     let unsubs: (() => void)[] = [];
     let isInitialized = false;
 
-    const handleSession = async (currentSession: any) => {
+    const handleSession = async (event: string, currentSession: any) => {
       // Avoid processing the same session state twice if possible
       // but we need to handle transitions.
       
+      const shouldReload = ['INITIAL_SESSION', 'SIGNED_IN'].includes(event);
+      
+      if (!shouldReload && session) {
+        // Just Update session without reloading everything if it's just a token refresh
+        setSession(currentSession);
+        return;
+      }
+
       // Cleanup previous listeners
       unsubs.forEach(u => u());
       unsubs = [];
@@ -53,10 +64,21 @@ const App: React.FC = () => {
       setSession(currentSession);
       
       try {
+        // Guard against race conditions and overwriting fresh local data
+        const isPendingSync = localStorage.getItem('optimus_pending_sync') === 'true';
+        if (pendingChanges > 0 || isPendingSync) {
+          console.log("Skipping cloud reload: pending changes detected (local or persistent flag).");
+          return;
+        }
+
         // Initial load from cloud
         const cloudData = await loadStateFromCloud();
         
         setState(prev => {
+          // Double check inside setState to be absolutely sure
+          const stillPending = localStorage.getItem('optimus_pending_sync') === 'true';
+          if (pendingChanges > 0 || stillPending) return prev;
+
           const newState = { ...prev, ...cloudData };
           const appUser = mapSupabaseUserToAppUser(currentSession.user);
           
@@ -78,8 +100,8 @@ const App: React.FC = () => {
     };
 
     // onAuthStateChange will trigger handleSession with the current session immediately
-    const authSubscription = onAuthStateChange((newSession) => {
-      handleSession(newSession);
+    const authSubscription = onAuthStateChange((event, newSession) => {
+      handleSession(event, newSession);
     });
 
     return () => {
@@ -91,8 +113,25 @@ const App: React.FC = () => {
   useEffect(() => {
     saveState(state);
     if (session) {
-      const timer = setTimeout(() => {
-        syncStateToCloud(state);
+      setSaveStatus('idle');
+      setPendingChanges(prev => prev + 1);
+      localStorage.setItem('optimus_pending_sync', 'true');
+
+      const timer = setTimeout(async () => {
+        try {
+          setSaveStatus('saving');
+          await syncStateToCloud(state);
+          
+          localStorage.removeItem('optimus_pending_sync');
+          setPendingChanges(0); // All changes up to this save are persisted
+          setSaveStatus('saved');
+          
+          // Clear status after 2 seconds
+          setTimeout(() => setSaveStatus(prev => prev === 'saved' ? 'idle' : prev), 2000);
+        } catch (err) {
+          console.error("Auto-save failed", err);
+          setSaveStatus('error');
+        }
       }, 5000);
       return () => clearTimeout(timer);
     }
@@ -185,6 +224,20 @@ const App: React.FC = () => {
       onAdminLock={handleAdminLock}
     >
       {renderModule()}
+      
+      {/* Save Status Indicator */}
+      {saveStatus !== 'idle' && (
+        <div className={`fixed bottom-4 right-4 px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg flex items-center gap-2 z-[9999] animate-in slide-in-from-right-4 duration-300 ${
+          saveStatus === 'saving' ? 'bg-navy text-yellow-accent' :
+          saveStatus === 'saved' ? 'bg-emerald-500 text-white' :
+          'bg-red-500 text-white'
+        }`}>
+          {saveStatus === 'saving' && <div className="w-3 h-3 border-2 border-yellow-accent border-t-transparent rounded-full animate-spin"></div>}
+          {saveStatus === 'saved' && <CheckCircle size={14} />}
+          {saveStatus === 'error' && <AlertTriangle size={14} />}
+          {saveStatus === 'saving' ? 'Sauvegarde...' : saveStatus === 'saved' ? 'Sauvegardé' : 'Erreur de sauvegarde'}
+        </div>
+      )}
     </Layout>
   );
 };

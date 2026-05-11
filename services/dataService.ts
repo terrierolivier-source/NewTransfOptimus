@@ -242,6 +242,22 @@ const parseCSVDate = (dateStr: string): string => {
   return `${y}-${m}-${d}`;
 };
 
+export const syncBudgetDataToCloud = async (state: AppState) => {
+  if (!state.globalFY) return;
+  try {
+    const { error } = await supabase.from('budget_data').upsert({
+      fy: state.globalFY,
+      manual_expenses: state.manualExpenses[state.globalFY] || {},
+      budget_families: state.budgetFamilies[state.globalFY] || {},
+      budget_values: state.budgetValues[state.globalFY] || {}
+    });
+    if (error) throw error;
+  } catch (e) {
+    console.error('Supabase Budget sync failed', e);
+    throw e;
+  }
+};
+
 export const syncMissionToCloud = async (mission: Mission) => {
   const payload = mapMissionToSupabase(mission);
   try {

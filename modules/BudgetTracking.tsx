@@ -43,7 +43,7 @@ import {
   Trash
 } from 'lucide-react';
 import { getFiscalYear, generateId, getBusinessDays, calculateMonthlySmoothedRevenue, calculateTotalMissionRevenue, calculateSmoothedMissionRevenue } from '../utils';
-import { syncMissionToCloud } from '../services/dataService';
+import { syncMissionToCloud, syncBudgetDataToCloud } from '../services/dataService';
 
 interface BudgetTrackingProps {
   state: AppState;
@@ -398,7 +398,15 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
           });
         }
       }
-      updateState({ manualExpenses: { ...manualExpenses, [globalFY]: { ...(manualExpenses[globalFY] || {}), [countryKey]: nextBucket } } });
+      
+      const newManualExpenses = { ...manualExpenses, [globalFY]: { ...(manualExpenses[globalFY] || {}), [countryKey]: nextBucket } };
+      updateState({ manualExpenses: newManualExpenses });
+      
+      try {
+        await syncBudgetDataToCloud({ ...state, manualExpenses: newManualExpenses });
+      } catch (e) {
+        console.error('Error syncing manual expense comment:', e);
+      }
     }
     setActiveCommentCell(null);
   };
@@ -423,7 +431,7 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
     setActivePoMissionId(null);
   };
 
-  const handleUpdateExpenseAmount = (id: string, monthId: number, value: string) => {
+  const handleUpdateExpenseAmount = async (id: string, monthId: number, value: string) => {
     if (isGlobalView) return;
     const countryKey = globalCountry as string;
     const cleanValue = value.replace(/[^\d-]/g, '');
@@ -448,10 +456,18 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
         });
       }
     }
-    updateState({ manualExpenses: { ...manualExpenses, [globalFY]: { ...(manualExpenses[globalFY] || {}), [countryKey]: nextBucket } } });
+
+    const newManualExpenses = { ...manualExpenses, [globalFY]: { ...(manualExpenses[globalFY] || {}), [countryKey]: nextBucket } };
+    updateState({ manualExpenses: newManualExpenses });
+    
+    try {
+      await syncBudgetDataToCloud({ ...state, manualExpenses: newManualExpenses });
+    } catch (e) {
+      console.error('Error syncing manual expense amount:', e);
+    }
   };
 
-  const handleToggleExpenseStatus = (id: string, monthId: number) => {
+  const handleToggleExpenseStatus = async (id: string, monthId: number) => {
     if (isGlobalView) return;
     const countryKey = globalCountry as string;
     const bucket = manualExpenses[globalFY]?.[countryKey] || [];
@@ -479,67 +495,126 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
         });
       }
     }
-    updateState({ manualExpenses: { ...manualExpenses, [globalFY]: { ...(manualExpenses[globalFY] || {}), [countryKey]: nextBucket } } });
+
+    const newManualExpenses = { ...manualExpenses, [globalFY]: { ...(manualExpenses[globalFY] || {}), [countryKey]: nextBucket } };
+    updateState({ manualExpenses: newManualExpenses });
+
+    try {
+      await syncBudgetDataToCloud({ ...state, manualExpenses: newManualExpenses });
+    } catch (e) {
+      console.error('Error syncing manual expense status:', e);
+    }
   };
 
-  const handleAddFamily = (categoryId: string) => {
+  const handleAddFamily = async (categoryId: string) => {
     if (isGlobalView) return;
     const newFam: BudgetFamily = { id: generateId(), label: 'Nouvelle Famille...', categoryId };
     const nextFamilies = { ...budgetFamilies };
     if (!nextFamilies[globalFY]) nextFamilies[globalFY] = {};
     nextFamilies[globalFY][globalCountry as string] = [...(nextFamilies[globalFY][globalCountry as string] || []), newFam];
     updateState({ budgetFamilies: nextFamilies });
+
+    try {
+      await syncBudgetDataToCloud({ ...state, budgetFamilies: nextFamilies });
+    } catch (e) {
+      console.error('Error syncing budget families (add):', e);
+    }
   };
 
-  const handleUpdateFamilyLabel = (id: string, label: string) => {
+  const handleUpdateFamilyLabel = async (id: string, label: string) => {
     if (isGlobalView) return;
     const countryKey = globalCountry as string;
     const nextFams = (budgetFamilies[globalFY][countryKey] || []).map(f => f.id === id ? { ...f, label } : f);
-    updateState({ budgetFamilies: { ...budgetFamilies, [globalFY]: { ...budgetFamilies[globalFY], [countryKey]: nextFams } } });
+    const nextFamilies = { ...budgetFamilies, [globalFY]: { ...budgetFamilies[globalFY], [countryKey]: nextFams } };
+    updateState({ budgetFamilies: nextFamilies });
+
+    try {
+      await syncBudgetDataToCloud({ ...state, budgetFamilies: nextFamilies });
+    } catch (e) {
+      console.error('Error syncing budget families (update):', e);
+    }
   };
 
-  const handleDeleteFamily = (id: string) => {
+  const handleDeleteFamily = async (id: string) => {
     if (isGlobalView) return;
     const countryKey = globalCountry as string;
     const nextFams = (budgetFamilies[globalFY][countryKey] || []).filter(f => f.id !== id);
     const nextExpenses = (manualExpenses[globalFY][countryKey] || []).filter(e => e.familyId !== id);
+    
+    const nextFamilies = { ...budgetFamilies, [globalFY]: { ...budgetFamilies[globalFY], [countryKey]: nextFams } };
+    const nextManualExpenses = { ...manualExpenses, [globalFY]: { ...manualExpenses[globalFY], [countryKey]: nextExpenses } };
+
     updateState({ 
-      budgetFamilies: { ...budgetFamilies, [globalFY]: { ...budgetFamilies[globalFY], [countryKey]: nextFams } },
-      manualExpenses: { ...manualExpenses, [globalFY]: { ...manualExpenses[globalFY], [countryKey]: nextExpenses } }
+      budgetFamilies: nextFamilies,
+      manualExpenses: nextManualExpenses
     });
+
+    try {
+      await syncBudgetDataToCloud({ ...state, budgetFamilies: nextFamilies, manualExpenses: nextManualExpenses });
+    } catch (e) {
+      console.error('Error syncing budget data (delete family):', e);
+    }
   };
 
-  const handleAddExpenseRow = (categoryId: string, familyId: string) => {
+  const handleAddExpenseRow = async (categoryId: string, familyId: string) => {
     if (isGlobalView) return;
     const countryKey = globalCountry as string;
     const newExpense: ManualExpense = { id: generateId(), label: 'Libellé ligne...', categoryId, familyId, monthlyAmounts: {}, monthlyComments: {}, monthlyStatuses: {} };
     const nextManual = { ...manualExpenses };
     if (!nextManual[globalFY]) nextManual[globalFY] = {};
-    nextManual[globalFY][countryKey] = [...(nextManual[globalFY][countryKey] || []), newExpense];
+    const nextBucket = [...(nextManual[globalFY][countryKey] || []), newExpense];
+    nextManual[globalFY][countryKey] = nextBucket;
     updateState({ manualExpenses: nextManual });
+
+    try {
+      await syncBudgetDataToCloud({ ...state, manualExpenses: nextManual });
+    } catch (e) {
+      console.error('Error syncing budget data (add expense):', e);
+    }
   };
 
-  const handleUpdateExpenseLabel = (id: string, label: string) => {
+  const handleUpdateExpenseLabel = async (id: string, label: string) => {
     if (isGlobalView || id.startsWith('auto-')) return;
     const countryKey = globalCountry as string;
     const next = (manualExpenses[globalFY][countryKey] || []).map(e => e.id === id ? { ...e, label } : e);
-    updateState({ manualExpenses: { ...manualExpenses, [globalFY]: { ...(manualExpenses[globalFY] || {}), [countryKey]: next } } });
+    const nextManualExpenses = { ...manualExpenses, [globalFY]: { ...(manualExpenses[globalFY] || {}), [countryKey]: next } };
+    updateState({ manualExpenses: nextManualExpenses });
+
+    try {
+      await syncBudgetDataToCloud({ ...state, manualExpenses: nextManualExpenses });
+    } catch (e) {
+      console.error('Error syncing budget data (update expense label):', e);
+    }
   };
 
-  const handleDeleteExpenseRow = (id: string) => {
+  const handleDeleteExpenseRow = async (id: string) => {
     if (isGlobalView || id.startsWith('auto-')) return;
     const countryKey = globalCountry as string;
     const next = (manualExpenses[globalFY][countryKey] || []).filter(e => e.id !== id);
-    updateState({ manualExpenses: { ...manualExpenses, [globalFY]: { ...(manualExpenses[globalFY] || {}), [countryKey]: next } } });
+    const nextManualExpenses = { ...manualExpenses, [globalFY]: { ...(manualExpenses[globalFY] || {}), [countryKey]: next } };
+    updateState({ manualExpenses: nextManualExpenses });
+
+    try {
+      await syncBudgetDataToCloud({ ...state, manualExpenses: nextManualExpenses });
+    } catch (e) {
+      console.error('Error syncing budget data (delete expense row):', e);
+    }
   };
 
-  const handleUpdateBudgetVal = (id: string, value: string) => {
+  const handleUpdateBudgetVal = async (id: string, value: string) => {
     if (isGlobalView) return;
     const countryKey = globalCountry as string;
     const cleanValue = value.replace(/[^\d-]/g, '');
     const amount = cleanValue === '' ? 0 : parseFloat(cleanValue) || 0;
-    const nextValues = { ...(budgetValues[globalFY]?.[countryKey] || {}), [id]: amount };
-    updateState({ budgetValues: { ...budgetValues, [globalFY]: { ...(budgetValues[globalFY] || {}), [countryKey]: nextValues } } });
+    const nextValuesBucket = { ...(budgetValues[globalFY]?.[countryKey] || {}), [id]: amount };
+    const nextBudgetValues = { ...budgetValues, [globalFY]: { ...(budgetValues[globalFY] || {}), [countryKey]: nextValuesBucket } };
+    updateState({ budgetValues: nextBudgetValues });
+
+    try {
+      await syncBudgetDataToCloud({ ...state, budgetValues: nextBudgetValues });
+    } catch (e) {
+      console.error('Error syncing budget values:', e);
+    }
   };
 
   const calculateCategoryTotals = (catId: string) => {
