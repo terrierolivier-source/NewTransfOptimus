@@ -1084,12 +1084,24 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
                   
                   <tr className="bg-navy/80 text-white/90">
                     <td className="p-4 border-r border-white/5 sticky left-0 z-10 bg-[#2d3b4d] font-black text-[11px] uppercase shadow-[4px_0_10px_-2px_rgba(0,0,0,0.3)] w-[400px] flex items-center gap-2"><Percent size={14} className="text-yellow-accent" /> MARGE EBIT (%)</td>
-                    {(plData.ebitPercentMonthly as number[]).map((v: number, i: number) => <td key={i} className={`p-4 text-center font-black text-[10px] ${v < 0 ? 'text-red-400' : 'text-white'}`}>{formatPercent(v)}</td>)}
-                    <td className="p-4 border-l border-white/5 text-center font-black text-[10px] bg-navy/60">{formatPercent(plData.ebitPercentAggregates.fytd)}</td>
-                    <td className="p-4 border-l border-white/5 text-center font-black text-[10px] bg-navy/60">{formatPercent(plData.ebitPercentAggregates.fytg)}</td>
-                    <td className="p-4 border-l border-white/5 text-center font-black text-[10px] bg-navy/60 text-yellow-accent">{formatPercent(plData.ebitPercentAggregates.fy)}</td>
+                    {(plData.ebitPercentMonthly as number[]).map((v: number, i: number) => (
+                      <td key={i} className={`p-4 text-center font-black text-[10px] ${v >= 15 ? 'text-emerald-400' : v > 0 ? 'text-orange-400' : 'text-red-400'}`}>
+                        {formatPercent(v)}
+                      </td>
+                    ))}
+                    <td className={`p-4 border-l border-white/5 text-center font-black text-[10px] bg-navy/60 ${plData.ebitPercentAggregates.fytd >= 15 ? 'text-emerald-400' : plData.ebitPercentAggregates.fytd > 0 ? 'text-orange-400' : 'text-red-400'}`}>
+                      {formatPercent(plData.ebitPercentAggregates.fytd)}
+                    </td>
+                    <td className={`p-4 border-l border-white/5 text-center font-black text-[10px] bg-navy/60 ${plData.ebitPercentAggregates.fytg >= 15 ? 'text-emerald-400' : plData.ebitPercentAggregates.fytg > 0 ? 'text-orange-400' : 'text-red-400'}`}>
+                      {formatPercent(plData.ebitPercentAggregates.fytg)}
+                    </td>
+                    <td className={`p-4 border-l border-white/5 text-center font-black text-[10px] bg-navy/60 ${plData.ebitPercentAggregates.fy >= 15 ? 'text-emerald-400' : plData.ebitPercentAggregates.fy > 0 ? 'text-orange-400' : 'text-red-400'}`}>
+                      {formatPercent(plData.ebitPercentAggregates.fy)}
+                    </td>
                     <td className="p-4 border-l border-white/5 text-center font-black text-[10px] bg-navy/60 text-white/40">{formatPercent(plData.ebitPercentAggregates.budget)}</td>
-                    <td className="p-4 border-l border-white/5 text-center bg-gray-800 font-black text-[10px]">{formatPercent((plData.ebitPercentAggregates.fy) - (plData.ebitPercentAggregates.budget))}</td>
+                    <td className={`p-4 border-l border-white/5 text-center bg-gray-800 font-black text-[10px] ${(plData.ebitPercentAggregates.fy - plData.ebitPercentAggregates.budget) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {formatPercent((plData.ebitPercentAggregates.fy) - (plData.ebitPercentAggregates.budget))}
+                    </td>
                   </tr>
                 </tbody>
               </table>

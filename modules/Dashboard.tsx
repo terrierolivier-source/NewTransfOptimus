@@ -272,8 +272,8 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
   const portfolioWeightedMargin = portfolioWeightedMarginData.marginPercent;
 
   const healthStatus = useMemo(() => {
-    if (portfolioWeightedMargin < 5) return { label: 'SANTÉ CRITIQUE', color: 'text-red-600', bg: 'bg-red-50', icon: ShieldAlert };
-    if (portfolioWeightedMargin < 20) return { label: 'SANTÉ SOUS SURVEILLANCE', color: 'text-orange-500', bg: 'bg-orange-50', icon: AlertTriangle };
+    if (portfolioWeightedMargin <= 0) return { label: 'SANTÉ CRITIQUE', color: 'text-red-600', bg: 'bg-red-50', icon: ShieldAlert };
+    if (portfolioWeightedMargin < 15) return { label: 'SANTÉ SOUS SURVEILLANCE', color: 'text-orange-500', bg: 'bg-orange-50', icon: AlertTriangle };
     return { label: 'SANTÉ FINANCIÈRE OPTIMALE', color: 'text-emerald-600', bg: 'bg-emerald-50', icon: TrendingUp };
   }, [portfolioWeightedMargin]);
 
@@ -455,11 +455,31 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
     // Mission sans staffing: Une mission en cours doit avoir au moins un collaborateur éligible staffé
     const noStaffing = filteredMissions.filter(m => {
       if (m.status !== MissionStatus.EN_COURS) return false;
+      
       const staffings = planning.filter(p => p.missionId === m.id && p.percentage > 0);
-      return !staffings.some(p => {
+      
+      // Check if there is ANY type of staffing in the planning:
+      // 1. Internal collaborator (active)
+      // 2. Or external freelance/subcontractor (via externalName or externalType)
+      const hasStaffingInPlanning = staffings.some(p => {
+        // Option A: Link via collaboratorId/userId to a known collaborator
         const collab = collaborators.find(c => c.id === (p.collaboratorId || p.userId));
-        return isOperationalCollaborator(collab);
+        if (collab && collab.active) return true;
+        
+        // Option B: Direct external entry in planning
+        if (p.externalName || p.externalType) return true;
+        
+        return false;
       });
+
+      if (hasStaffingInPlanning) return false;
+
+      // Also check the mission's static staffing arrays as fallbacks/truth sources
+      const hasInternalStaffing = (m.internalStaffing || []).length > 0;
+      const hasFreelanceStaffing = (m.freelanceStaffing || []).length > 0;
+      const hasSubcontractorStaffing = (m.subcontractorStaffing || []).length > 0;
+
+      return !(hasInternalStaffing || hasFreelanceStaffing || hasSubcontractorStaffing);
     });
 
     const lateTimesheets = eligibleCollaborators.filter(collab => {
@@ -868,7 +888,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
           <h3 className={`${SECTION_TITLE_CLASS} mb-6`}>TOP 5 MISSIONS PAR RENTABILITÉ {globalFY}</h3>
           <div className="space-y-2.5 flex-1 flex flex-col justify-center">
             {missionMetrics
-              .filter(mm => missionsForSelectedFY.some(mfy => mfy.id === mm.mission.id))
+              .filter(mm => missionsForSelectedFY.some(mfy => mfy.id === mm.mission.id) && mm.fyProdCost > 0 && mm.mission.status !== MissionStatus.NON_DEMARREE)
               .sort((a, b) => b.fyMargin - a.fyMargin)
               .slice(0, 5)
               .map((m, i) => (
@@ -881,7 +901,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
                   </div>
                 </div>
                 <div className="text-right shrink-0 ml-4">
-                  <p className={`text-xs font-black ${m.fyMargin >= 20 ? 'text-emerald-600' : m.fyMargin >= 5 ? 'text-orange-500' : 'text-red-600'}`}>{Math.round(m.fyMargin)}%</p>
+                  <p className={`text-xs font-black ${m.fyMargin >= 15 ? 'text-emerald-600' : m.fyMargin > 0 ? 'text-orange-500' : 'text-red-600'}`}>{Math.round(m.fyMargin)}%</p>
                   <p className="text-[7px] font-black text-gray-400 uppercase tracking-widest">MARGE {globalFY}</p>
                 </div>
               </div>

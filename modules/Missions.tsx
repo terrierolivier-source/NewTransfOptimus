@@ -547,7 +547,7 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
                       <div className="text-[10px] text-gray-500 truncate max-w-[180px] mt-0.5">{m.name}</div>
                     </td>
                     <td className="p-4 border-b group-last:border-0">
-                      <div className={`text-[12px] font-black ${marginPercent >= 30 ? 'text-green-600' : marginPercent >= 15 ? 'text-yellow-600' : 'text-red-600'}`}>
+                      <div className={`text-[12px] font-black ${marginPercent >= 15 ? 'text-green-600' : marginPercent > 0 ? 'text-orange-500' : 'text-red-600'}`}>
                         {Math.round(marginPercent)}%
                       </div>
                     </td>
@@ -720,7 +720,7 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
                             <span className="text-xs font-black text-navy truncate">{formatCurrency(forecastMetrics.prodCost)}</span>
                           </div>
                       </div>
-                      <div className={`flex items-center gap-3 px-4 py-2 rounded-xl border shadow-sm transition-all duration-300 ${forecastMetrics.marginPercent >= 30 ? 'bg-green-50 border-green-100 text-green-700' : 'bg-white/60 border-yellow-200/40 text-navy'}`}>
+                      <div className={`flex items-center gap-3 px-4 py-2 rounded-xl border shadow-sm transition-all duration-300 ${forecastMetrics.marginPercent >= 15 ? 'bg-green-50 border-green-100 text-green-700' : forecastMetrics.marginPercent > 0 ? 'bg-orange-50 border-orange-100 text-orange-700' : 'bg-red-50 border-red-100 text-red-700'}`}>
                           <Target size={14} className="opacity-60" />
                           <div className="flex flex-col">
                             <span className="text-[8px] font-black uppercase tracking-widest opacity-60 leading-none mb-1">Rentabilité Prév. :</span>
@@ -736,7 +736,7 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
                             <span className="text-xs font-black text-navy truncate">{formatCurrency(currentMetrics.prodCost)}</span>
                           </div>
                       </div>
-                      <div className={`flex items-center gap-3 px-4 py-2 rounded-xl border shadow-sm transition-all duration-300 ${currentMetrics.marginPercent >= 30 ? 'bg-green-100 border-green-200 text-green-700' : 'bg-white border-yellow-200 text-navy'}`}>
+                      <div className={`flex items-center gap-3 px-4 py-2 rounded-xl border shadow-sm transition-all duration-300 ${currentMetrics.marginPercent >= 15 ? 'bg-green-100 border-green-200 text-green-700' : currentMetrics.marginPercent > 0 ? 'bg-orange-100 border-orange-200 text-orange-700' : 'bg-red-100 border-red-200 text-red-700'}`}>
                           <Calculator size={14} />
                           <div className="flex flex-col">
                              <span className="text-[8px] font-black uppercase tracking-widest opacity-60 leading-none mb-1">Rentabilité Réelle+Prév :</span>
