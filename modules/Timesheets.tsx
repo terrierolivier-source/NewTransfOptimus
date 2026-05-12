@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { AppState, TimesheetEntry, TimesheetStatus, MissionStatus, Role } from '../types';
 import { getFiscalYear, getMonday, normalizeTimesheetEntry } from '../utils';
-import { syncTimesheetsToCloud, loadTimesheetsFromCloud, deleteTimesheetFromCloud, isValidUuid } from '../services/dataService';
+import { syncTimesheetsToCloud, loadTimesheetsFromCloud, deleteTimesheetFromCloud, isValidUuid, fetchExistingTimesheetByBusinessKey } from '../services/dataService';
 import { addWeeks, addDays, format, isSameDay, parseISO, isWithinInterval, getMonth } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
@@ -194,46 +194,59 @@ const Timesheets: React.FC<TimesheetsProps> = ({
 
     const { missionId, activityType } = normalizeTimesheetEntry(entry);
 
-    // Search by logical key in FRESH state to avoid duplicates
-    // Note: We use atomic update in state, so we just need a UUID to start with
-    const existing = state.timesheets.find(t => 
-      t.collaboratorId === selectedUserId && 
-      (t.missionId || null) === missionId && 
-      (t.activityType || null) === activityType &&
-      t.weekStart === entry.weekStart && 
-      t.dayIndex === entry.dayIndex
-    );
-
-    const newEntry: TimesheetEntry = { 
-        id: existing?.id || crypto.randomUUID(), 
-        userId: selectedUserId, 
-        collaboratorId: selectedUserId,
-        weekStart: entry.weekStart, 
-        missionId, 
-        activityType,
-        dayIndex: entry.dayIndex, 
-        percentage: entry.percentage, 
-        comment: existing?.comment || '', 
-        status: TimesheetStatus.VALIDE,
-        updatedAt: new Date().toISOString()
-    };
-    
     try {
       setSaveStatus('saving');
+
+      // 1. Business Key Check: Look in state AND in DB
+      let existingInState = state.timesheets.find(t => 
+        t.collaboratorId === selectedUserId && 
+        (t.missionId || null) === missionId && 
+        (t.activityType || null) === activityType && 
+        t.weekStart === entry.weekStart && 
+        t.dayIndex === entry.dayIndex
+      );
+
+      let existingId = existingInState?.id;
+
+      if (!existingId) {
+        // Double check in DB directly to be absolutely sure (prevents duplicates if state is partial)
+        const dbExisting = await fetchExistingTimesheetByBusinessKey({
+          collaboratorId: selectedUserId,
+          missionId,
+          activityType,
+          weekStart: entry.weekStart,
+          dayIndex: entry.dayIndex
+        });
+        if (dbExisting) {
+          existingId = dbExisting.id;
+        }
+      }
+
+      const entryToSync: TimesheetEntry = { 
+          id: existingId || crypto.randomUUID(), 
+          userId: selectedUserId, 
+          collaboratorId: selectedUserId,
+          weekStart: entry.weekStart, 
+          missionId, 
+          activityType,
+          dayIndex: entry.dayIndex, 
+          percentage: entry.percentage, 
+          comment: existingInState?.comment || '', 
+          status: TimesheetStatus.VALIDE,
+          updatedAt: new Date().toISOString()
+      };
       
-      // Cloud Sync first (safest if we want to ensure persistence before state change)
-      // or state update first (optimistic). The instructions suggest atomic state update based on prev.
-      await syncTimesheetsToCloud([newEntry]);
+      // Cloud Sync
+      const saved = await syncTimesheetsToCloud([entryToSync]);
+      const finalEntry = saved && saved.length > 0 ? saved[0] : entryToSync;
       
       // Atomic Update in State
-      upsertTimesheetInState(newEntry);
+      upsertTimesheetInState(finalEntry);
       
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus('idle'), 2000);
     } catch (err: any) {
       console.error("Quick validate failed", err);
-      // No need to revert global state as we didn't use updateState({ timesheets: ... })
-      // But we might want to inform user precisely.
       setSaveStatus('error');
     }
   };
@@ -251,39 +264,52 @@ const Timesheets: React.FC<TimesheetsProps> = ({
 
     const numVal = Math.min(100, Math.max(0, validationPercentage));
     
-    // Find existing to avoid duplicates (to get the ID)
-    const existing = state.timesheets.find(t => 
-      t.collaboratorId === selectedUserId && 
-      (t.missionId || null) === missionId && 
-      (t.activityType || null) === activityType &&
-      t.weekStart === validatingEntry.weekStart && 
-      t.dayIndex === validatingEntry.dayIndex
-    );
-
-    const id = existing?.id || (validatingEntry.isActual ? validatingEntry.id : crypto.randomUUID());
-
-    const entryToSync: TimesheetEntry = { 
-      id, 
-      userId: selectedUserId, 
-      collaboratorId: selectedUserId,
-      weekStart: validatingEntry.weekStart, 
-      missionId, 
-      activityType,
-      dayIndex: validatingEntry.dayIndex, 
-      percentage: numVal, 
-      comment: validationComment, 
-      status: TimesheetStatus.VALIDE,
-      updatedAt: new Date().toISOString()
-    };
-
     try {
       setSaveStatus('saving');
-      
+
+      // Check DB/State for ID
+      let existingInState = state.timesheets.find(t => 
+        t.collaboratorId === selectedUserId && 
+        (t.missionId || null) === missionId && 
+        (t.activityType || null) === activityType && 
+        t.weekStart === validatingEntry.weekStart && 
+        t.dayIndex === validatingEntry.dayIndex
+      );
+
+      let existingId = existingInState?.id;
+      if (!existingId) {
+        const dbEntry = await fetchExistingTimesheetByBusinessKey({
+          collaboratorId: selectedUserId,
+          missionId,
+          activityType,
+          weekStart: validatingEntry.weekStart,
+          dayIndex: validatingEntry.dayIndex
+        });
+        if (dbEntry) existingId = dbEntry.id;
+      }
+
+      const id = existingId || (validatingEntry.isActual ? validatingEntry.id : crypto.randomUUID());
+
+      const entryToSync: TimesheetEntry = { 
+        id, 
+        userId: selectedUserId, 
+        collaboratorId: selectedUserId,
+        weekStart: validatingEntry.weekStart, 
+        missionId, 
+        activityType,
+        dayIndex: validatingEntry.dayIndex, 
+        percentage: numVal, 
+        comment: validationComment, 
+        status: TimesheetStatus.VALIDE,
+        updatedAt: new Date().toISOString()
+      };
+
       // Cloud Sync
-      await syncTimesheetsToCloud([entryToSync]);
+      const saved = await syncTimesheetsToCloud([entryToSync]);
+      const finalEntry = saved && saved.length > 0 ? saved[0] : entryToSync;
       
       // Atomic State Update
-      upsertTimesheetInState(entryToSync);
+      upsertTimesheetInState(finalEntry);
       
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus('idle'), 2000);
@@ -346,45 +372,58 @@ const Timesheets: React.FC<TimesheetsProps> = ({
     
     const { missionId, activityType } = normalizeTimesheetEntry({ missionId: typeId });
 
-    // Find existing to avoid duplicates
-    const existing = state.timesheets.find(t => 
-      t.collaboratorId === selectedUserId && 
-      (t.missionId || null) === missionId && 
-      (t.activityType || null) === activityType &&
-      t.weekStart === weekKey && 
-      t.dayIndex === dayIndex
-    );
-
-    const newEntry: TimesheetEntry = { 
-      id: existing?.id || crypto.randomUUID(), 
-      userId: selectedUserId, 
-      collaboratorId: selectedUserId,
-      weekStart: weekKey, 
-      missionId, 
-      activityType,
-      dayIndex: dayIndex, 
-      percentage: CATEGORIES.some(c => c.id === typeId) ? 100 : 0,
-      status: TimesheetStatus.VALIDE,
-      comment: existing?.comment || '',
-      updatedAt: new Date().toISOString()
-    };
-
     try {
       setSaveStatus('saving');
+
+      // ID resolution
+      let existingInState = state.timesheets.find(t => 
+        t.collaboratorId === selectedUserId && 
+        (t.missionId || null) === missionId && 
+        (t.activityType || null) === activityType && 
+        t.weekStart === weekKey && 
+        t.dayIndex === dayIndex
+      );
       
+      let existingId = existingInState?.id;
+      if (!existingId) {
+        const dbEntry = await fetchExistingTimesheetByBusinessKey({
+          collaboratorId: selectedUserId,
+          missionId,
+          activityType,
+          weekStart: weekKey,
+          dayIndex: dayIndex
+        });
+        if (dbEntry) existingId = dbEntry.id;
+      }
+
+      const newEntry: TimesheetEntry = { 
+        id: existingId || crypto.randomUUID(), 
+        userId: selectedUserId, 
+        collaboratorId: selectedUserId,
+        weekStart: weekKey, 
+        missionId, 
+        activityType,
+        dayIndex: dayIndex, 
+        percentage: CATEGORIES.some(c => c.id === typeId) ? 100 : 0,
+        status: TimesheetStatus.VALIDE,
+        comment: existingInState?.comment || '',
+        updatedAt: new Date().toISOString()
+      };
+
       // Sync to cloud
-      await syncTimesheetsToCloud([newEntry]);
+      const saved = await syncTimesheetsToCloud([newEntry]);
+      const finalEntry = saved && saved.length > 0 ? saved[0] : newEntry;
       
       // Atomic State Update
-      upsertTimesheetInState(newEntry);
+      upsertTimesheetInState(finalEntry);
       
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus('idle'), 2000);
       
       setActiveMenuDay(null);
-      setValidatingEntry({ ...newEntry, isActual: true });
-      setValidationPercentage(newEntry.percentage);
-      setValidationComment(newEntry.comment || '');
+      setValidatingEntry({ ...finalEntry, isActual: true });
+      setValidationPercentage(finalEntry.percentage);
+      setValidationComment(finalEntry.comment || '');
     } catch (err: any) {
       console.error("Add entry failed", err);
       setSaveStatus('error');

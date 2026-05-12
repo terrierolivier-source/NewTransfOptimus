@@ -348,15 +348,36 @@ export const deleteCollaboratorFromCloud = async (id: string) => {
 
 export const loadPlanningFromCloud = async (): Promise<PlanningEntry[]> => {
   try {
-    const { data, error } = await supabase.from('planning').select('*');
-    if (error) {
-      console.error('Error loading planning from Supabase:', error);
-      return [];
+    let allData: any[] = [];
+    let from = 0;
+    const PAGE_SIZE = 1000;
+    let hasMore = true;
+
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from('planning')
+        .select('*')
+        .range(from, from + PAGE_SIZE - 1);
+
+      if (error) {
+        console.error('Error loading planning from Supabase:', error);
+        throw error;
+      }
+
+      if (data && data.length > 0) {
+        allData = [...allData, ...data];
+        from += PAGE_SIZE;
+        hasMore = data.length === PAGE_SIZE;
+      } else {
+        hasMore = false;
+      }
     }
-    return data ? data.map(p => mapSupabaseToPlanning(p)) : [];
+    
+    console.log(`Loaded ${allData.length} total planning entries.`);
+    return allData.map(p => mapSupabaseToPlanning(p));
   } catch (e) {
     console.error('Exception loading planning from Supabase:', e);
-    return [];
+    throw e; // Throw so that loadStateFromCloud knows it failed
   }
 };
 
@@ -385,45 +406,104 @@ export const syncPlanningToCloud = async (planning: PlanningEntry[]) => {
 
 export const loadTimesheetsFromCloud = async (): Promise<TimesheetEntry[]> => {
   try {
-    const { data, error } = await supabase
-      .from('timesheets')
-      .select('*')
-      .order('updated_at', { ascending: false });
-      
-    if (error) {
-      console.error('Error loading timesheets from Supabase:', error);
-      return [];
+    let allData: any[] = [];
+    let from = 0;
+    const PAGE_SIZE = 1000;
+    let hasMore = true;
+
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from('timesheets')
+        .select('*')
+        .order('updated_at', { ascending: false })
+        .range(from, from + PAGE_SIZE - 1);
+        
+      if (error) {
+        console.error('Error loading timesheets from Supabase:', error);
+        throw error;
+      }
+
+      if (data && data.length > 0) {
+        allData = [...allData, ...data];
+        from += PAGE_SIZE;
+        hasMore = data.length === PAGE_SIZE;
+      } else {
+        hasMore = false;
+      }
     }
-    if (!data) return [];
     
-    const rawEntries = data.map(t => mapSupabaseToTimesheet(t));
+    const countBeforeDedup = allData.length;
+    const rawEntries = allData.map(t => mapSupabaseToTimesheet(t));
     
-    // Deduplicate: keep only the most recent one for each business key
     const dedupMap = new Map<string, TimesheetEntry>();
     rawEntries.forEach(entry => {
-      // Business key is collaborator + mission + activity + week + day
       const key = `${entry.collaboratorId}|${entry.missionId || 'null'}|${entry.activityType || 'null'}|${entry.weekStart}|${entry.dayIndex}`;
-      // Since we ordered by updated_at DESC, the first one we see is the most recent
       if (!dedupMap.has(key)) {
         dedupMap.set(key, entry);
+      } else {
+        // If we found a duplicate, we already have the most recent one because of ORDER BY updated_at desc
       }
     });
     
-    return Array.from(dedupMap.values());
+    const result = Array.from(dedupMap.values());
+    console.log(`Loaded ${countBeforeDedup} timesheets, result after dedup: ${result.length}`);
+    return result;
   } catch (e) {
     console.error('Exception loading timesheets from Supabase:', e);
-    return [];
+    throw e;
   }
 };
 
-export const syncTimesheetsToCloud = async (entries: TimesheetEntry[]) => {
-  if (entries.length === 0) return;
+export const fetchExistingTimesheetByBusinessKey = async (entry: Partial<TimesheetEntry>): Promise<TimesheetEntry | null> => {
+  try {
+    const collaboratorId = nullableUuid(entry.collaboratorId || entry.userId);
+    if (!collaboratorId) return null;
+
+    let query = supabase
+      .from('timesheets')
+      .select('*')
+      .eq('collaborator_id', collaboratorId)
+      .eq('week_start', entry.weekStart)
+      .eq('day_index', entry.dayIndex);
+    
+    if (entry.activityType) {
+      query = query.eq('activity_type', entry.activityType).is('mission_id', null);
+    } else if (entry.missionId) {
+      query = query.eq('mission_id', entry.missionId).is('activity_type', null);
+    } else {
+      return null;
+    }
+
+    const { data, error } = await query
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error('Error checking existing timesheet:', error);
+      return null;
+    }
+
+    return data ? mapSupabaseToTimesheet(data) : null;
+  } catch (e) {
+    console.error('Exception checking existing timesheet:', e);
+    return null;
+  }
+};
+
+export const syncTimesheetsToCloud = async (entries: TimesheetEntry[]): Promise<TimesheetEntry[]> => {
+  if (entries.length === 0) return [];
   const data = entries.map(e => mapTimesheetToSupabase(e));
+  const savedEntries: TimesheetEntry[] = [];
   try {
     const CHUNK_SIZE = 100;
     for (let i = 0; i < data.length; i += CHUNK_SIZE) {
       const chunk = data.slice(i, i + CHUNK_SIZE);
-      const { error } = await supabase.from('timesheets').upsert(chunk);
+      const { data: returnedData, error } = await supabase
+        .from('timesheets')
+        .upsert(chunk)
+        .select();
+
       if (error) {
         console.error('Supabase Timesheet sync error details:', {
           code: error.code,
@@ -432,20 +512,14 @@ export const syncTimesheetsToCloud = async (entries: TimesheetEntry[]) => {
           hint: error.hint,
           payload: chunk
         });
-        
-        // Handle Foreign Key violation for mission_id
-        if (error.code === '23503') {
-          let detailMsg = "Erreur de contrainte : mission_id doit correspondre à une mission existante dans la table missions.";
-          if (entries.some(e => ['CONGES', 'FORMATION', 'INTERMISSION'].includes(e.missionId))) {
-            detailMsg = "Erreur de contrainte : Les catégories 'Congés', 'Formation', 'Intermission' doivent être créées comme missions internes en base pour pouvoir être enregistrées.";
-          }
-          console.error(detailMsg);
-          throw new Error(detailMsg);
-        }
-
         throw error;
       }
+      
+      if (returnedData) {
+        returnedData.forEach(t => savedEntries.push(mapSupabaseToTimesheet(t)));
+      }
     }
+    return savedEntries;
   } catch (e) {
     console.error('Supabase Timesheet sync exception:', e);
     throw e;
@@ -564,40 +638,59 @@ export const loadStateFromCloud = async (): Promise<Partial<AppState>> => {
   const results: Partial<AppState> = {};
 
   try {
-    const { data: config } = await supabase.from('config').select('*').eq('key', 'global').single();
-    if (config) {
-      results.globalFY = config.data.globalFY;
-      results.globalCountry = config.data.globalCountry;
-      results.globalLanguage = config.data.globalLanguage;
-      results.isMonthlyClosed = config.data.isMonthlyClosed;
-    }
-
-    const { data: missions } = await supabase.from('missions').select('*');
-    if (missions) results.missions = missions.map(m => mapSupabaseToMission(m));
-
-    const { data: collaborators } = await supabase.from('collaborators').select('*');
-    if (collaborators) results.collaborators = collaborators.map(c => mapSupabaseToCollaborator(c));
-
-    const { data: users } = await supabase.from('users').select('*');
-    if (users) results.users = users.map(u => mapSupabaseToUser(u));
-
-    const { data: planning } = await supabase.from('planning').select('*');
-    if (planning) results.planning = planning.map(p => mapSupabaseToPlanning(p));
-
-    const timesheets = await loadTimesheetsFromCloud();
-    results.timesheets = timesheets;
-
-    if (results.globalFY) {
-      const { data: budget } = await supabase.from('budget_data').select('*').eq('fy', results.globalFY).single();
-      if (budget) {
-        results.manualExpenses = { [results.globalFY]: budget.manual_expenses || {} };
-        results.budgetFamilies = { [results.globalFY]: budget.budget_families || {} };
-        results.budgetValues = { [results.globalFY]: budget.budget_values || {} };
+    // Config
+    try {
+      const { data: config } = await supabase.from('config').select('*').eq('key', 'global').single();
+      if (config) {
+        results.globalFY = config.data.globalFY;
+        results.globalCountry = config.data.globalCountry;
+        results.globalLanguage = config.data.globalLanguage;
+        results.isMonthlyClosed = config.data.isMonthlyClosed;
       }
+    } catch (e) { console.warn('Config load failed', e); }
+
+    // Missions
+    try {
+      const { data: missions } = await supabase.from('missions').select('*');
+      if (missions) results.missions = missions.map(m => mapSupabaseToMission(m));
+    } catch (e) { console.warn('Missions load failed', e); }
+
+    // Collaborators
+    try {
+      const { data: collaborators } = await supabase.from('collaborators').select('*');
+      if (collaborators) results.collaborators = collaborators.map(c => mapSupabaseToCollaborator(c));
+    } catch (e) { console.warn('Collaborators load failed', e); }
+
+    // Users
+    try {
+      const { data: users } = await supabase.from('users').select('*');
+      if (users) results.users = users.map(u => mapSupabaseToUser(u));
+    } catch (e) { console.warn('Users load failed', e); }
+
+    // Planning (Paginated)
+    try {
+      results.planning = await loadPlanningFromCloud();
+    } catch (e) { console.warn('Planning load failed', e); }
+
+    // Timesheets (Paginated)
+    try {
+      results.timesheets = await loadTimesheetsFromCloud();
+    } catch (e) { console.warn('Timesheets load failed', e); }
+
+    // Budget
+    if (results.globalFY) {
+      try {
+        const { data: budget } = await supabase.from('budget_data').select('*').eq('fy', results.globalFY).single();
+        if (budget) {
+          results.manualExpenses = { [results.globalFY]: budget.manual_expenses || {} };
+          results.budgetFamilies = { [results.globalFY]: budget.budget_families || {} };
+          results.budgetValues = { [results.globalFY]: budget.budget_values || {} };
+        }
+      } catch (e) { console.warn('Budget load failed', e); }
     }
     return results;
   } catch (e) {
-    console.warn('Supabase load failed', e);
+    console.warn('Supabase global load failed', e);
     return results;
   }
 };
