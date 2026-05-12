@@ -108,8 +108,8 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
     const weekKey = format(weekStart, 'yyyy-MM-dd');
     const weekDays = [0, 1, 2, 3, 4].map(d => addDays(weekStart, d));
     
-    const actualEntries = state.timesheets.filter(t => t.userId === selectedUserId && t.weekStart === weekKey);
-    const planningForWeek = state.planning.filter(p => p.userId === selectedUserId && p.weekStart === weekKey);
+    const actualEntries = state.timesheets.filter(t => t.collaboratorId === selectedUserId && t.weekStart === weekKey);
+    const planningForWeek = state.planning.filter(p => p.collaboratorId === selectedUserId && p.weekStart === weekKey);
     
     const userHolidays = !selectedUser ? [] : state.holidays.filter(h => 
       h.country === selectedUser.country && weekDays.some(d => format(d, 'yyyy-MM-dd') === h.date)
@@ -133,7 +133,7 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
               ...(mission.internalStaffing || []),
               ...(mission.freelanceStaffing || []),
               ...(mission.subcontractorStaffing || [])
-            ].find(s => (s as any).userId === selectedUserId || s.id === selectedUserId);
+            ].find(s => s.collaboratorId === selectedUserId || (s as any).userId === selectedUserId || (s as any).id === selectedUserId);
 
             if (staffRow) {
               const start = parseISO(staffRow.startDate);
@@ -180,22 +180,44 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
       return;
     }
 
+    // Check if category/mission exists in missions table if it's not a known special label
+    const isSpecialCategory = CATEGORIES.some(c => c.id === entry.missionId);
+    if (isSpecialCategory) {
+      const missionExists = state.missions.some(m => m.id === entry.missionId);
+      if (!missionExists) {
+        alert(`L'activité "${entry.missionId}" nécessite une mission interne existante dans la base pour être enregistrée.`);
+        return;
+      }
+    }
+
+    // Find existing timesheet to avoid duplicates
+    const existing = state.timesheets.find(t => 
+      t.collaboratorId === selectedUserId && 
+      t.missionId === entry.missionId && 
+      t.weekStart === entry.weekStart && 
+      t.dayIndex === entry.dayIndex
+    );
+
     const newEntry: TimesheetEntry = { 
-        id: crypto.randomUUID(), 
+        id: existing?.id || crypto.randomUUID(), 
         userId: selectedUserId, 
         collaboratorId: selectedUserId,
         weekStart: entry.weekStart, 
         missionId: entry.missionId, 
         dayIndex: entry.dayIndex, 
         percentage: entry.percentage, 
-        comment: '', 
+        comment: existing?.comment || '', 
         status: TimesheetStatus.VALIDE 
     };
     
+    const originalTimesheets = [...state.timesheets];
     try {
       setSaveStatus('saving');
       // Optimistic Update
-      const updatedTimesheets = [...state.timesheets, newEntry];
+      const updatedTimesheets = existing 
+        ? state.timesheets.map(t => t.id === existing.id ? newEntry : t)
+        : [...state.timesheets, newEntry];
+        
       updateState({ timesheets: updatedTimesheets });
       
       // Cloud Sync
@@ -204,6 +226,8 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
       setTimeout(() => setSaveStatus('idle'), 2000);
     } catch (err: any) {
       console.error("Quick validate failed", err);
+      // Revert state if sync failed
+      updateState({ timesheets: originalTimesheets });
       setSaveStatus('error');
     }
   };
@@ -217,27 +241,42 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
       return;
     }
 
-    const numVal = Math.min(100, Math.max(0, validationPercentage));
-    let newTimesheets = [...state.timesheets];
-    let entryToSync: TimesheetEntry;
-
-    if (validatingEntry.isActual) {
-      entryToSync = { ...validatingEntry, percentage: numVal, comment: validationComment, status: TimesheetStatus.VALIDE };
-      newTimesheets = newTimesheets.map(t => t.id === validatingEntry.id ? entryToSync : t);
-    } else {
-      entryToSync = { 
-        id: crypto.randomUUID(), 
-        userId: selectedUserId, 
-        collaboratorId: selectedUserId,
-        weekStart: validatingEntry.weekStart, 
-        missionId: validatingEntry.missionId, 
-        dayIndex: validatingEntry.dayIndex, 
-        percentage: numVal, 
-        comment: validationComment, 
-        status: TimesheetStatus.VALIDE 
-      };
-      newTimesheets.push(entryToSync);
+    const isSpecialCategory = CATEGORIES.some(c => c.id === validatingEntry.missionId);
+    if (isSpecialCategory) {
+      const missionExists = state.missions.some(m => m.id === validatingEntry.missionId);
+      if (!missionExists) {
+        alert(`L'activité "${validatingEntry.missionId}" nécessite une mission interne existante dans la base pour être enregistrée.`);
+        setValidatingEntry(null);
+        return;
+      }
     }
+
+    const numVal = Math.min(100, Math.max(0, validationPercentage));
+    
+    // Find existing timesheet to avoid duplicates
+    const existing = state.timesheets.find(t => 
+      t.collaboratorId === selectedUserId && 
+      t.missionId === validatingEntry.missionId && 
+      t.weekStart === validatingEntry.weekStart && 
+      t.dayIndex === validatingEntry.dayIndex
+    );
+
+    const entryToSync: TimesheetEntry = { 
+      id: existing?.id || (validatingEntry.isActual ? validatingEntry.id : crypto.randomUUID()), 
+      userId: selectedUserId, 
+      collaboratorId: selectedUserId,
+      weekStart: validatingEntry.weekStart, 
+      missionId: validatingEntry.missionId, 
+      dayIndex: validatingEntry.dayIndex, 
+      percentage: numVal, 
+      comment: validationComment, 
+      status: TimesheetStatus.VALIDE 
+    };
+
+    const originalTimesheets = [...state.timesheets];
+    const newTimesheets = existing || validatingEntry.isActual
+      ? state.timesheets.map(t => t.id === entryToSync.id ? entryToSync : t)
+      : [...state.timesheets, entryToSync];
     
     try {
       setSaveStatus('saving');
@@ -251,6 +290,8 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
       setValidatingEntry(null);
     } catch (err) {
       console.error("Confirmation validation failed", err);
+      // Revert state
+      updateState({ timesheets: originalTimesheets });
       setSaveStatus('error');
     }
   };
@@ -301,22 +342,44 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
       return;
     }
     
-    const isInternal = CATEGORIES.some(c => c.id === typeId);
+    const isSpecialCategory = CATEGORIES.some(c => c.id === typeId);
+    if (isSpecialCategory) {
+      const missionExists = state.missions.some(m => m.id === typeId);
+      if (!missionExists) {
+        alert(`L'activité "${typeId}" nécessite une mission interne existante dans la base pour être enregistrée.`);
+        setActiveMenuDay(null);
+        return;
+      }
+    }
+
+    // Find existing to avoid duplicates
+    const existing = state.timesheets.find(t => 
+      t.collaboratorId === selectedUserId && 
+      t.missionId === typeId && 
+      t.weekStart === weekKey && 
+      t.dayIndex === dayIndex
+    );
 
     const newEntry: TimesheetEntry = { 
-      id: crypto.randomUUID(), 
+      id: existing?.id || crypto.randomUUID(), 
       userId: selectedUserId, 
       collaboratorId: selectedUserId,
       weekStart: weekKey, 
       missionId: typeId, 
       dayIndex: dayIndex, 
-      percentage: isInternal ? 100 : 0,
-      status: TimesheetStatus.VALIDE 
+      percentage: isSpecialCategory ? 100 : 0,
+      status: TimesheetStatus.VALIDE,
+      comment: existing?.comment || ''
     };
 
+    const originalTimesheets = [...state.timesheets];
     try {
       setSaveStatus('saving');
-      updateState({ timesheets: [...state.timesheets, newEntry] });
+      const updatedTimesheets = existing
+        ? state.timesheets.map(t => t.id === existing.id ? newEntry : t)
+        : [...state.timesheets, newEntry];
+
+      updateState({ timesheets: updatedTimesheets });
       
       // Sync to cloud
       await syncTimesheetsToCloud([newEntry]);
@@ -325,14 +388,13 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
       
       setActiveMenuDay(null);
       setValidatingEntry({ ...newEntry, isActual: true });
-      setValidationPercentage(isInternal ? 100 : 0);
-      setValidationComment('');
+      setValidationPercentage(newEntry.percentage);
+      setValidationComment(newEntry.comment || '');
     } catch (err: any) {
       console.error("Add entry failed", err);
+      // Revert state
+      updateState({ timesheets: originalTimesheets });
       setSaveStatus('error');
-      if (isInternal) {
-        alert("Echec de la sauvegarde. Conseil : Si cette erreur persiste pour les 'Congés/Formation', il se peut que votre base de données restreigne ces champs (FK violation).");
-      }
     }
   };
 

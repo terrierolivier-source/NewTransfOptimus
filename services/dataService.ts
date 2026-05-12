@@ -390,17 +390,20 @@ export const syncTimesheetsToCloud = async (entries: TimesheetEntry[]) => {
       const chunk = data.slice(i, i + CHUNK_SIZE);
       const { error } = await supabase.from('timesheets').upsert(chunk);
       if (error) {
-        console.error('Supabase Timesheet sync error:', {
-          error,
+        console.error('Supabase Timesheet sync error details:', {
           code: error.code,
           message: error.message,
           details: error.details,
-          chunk
+          hint: error.hint,
+          payload: chunk
         });
         
         // Handle Foreign Key violation for mission_id
-        if (error.code === '23503' && entries.some(e => ['CONGES', 'FORMATION', 'INTERMISSION'].includes(e.missionId))) {
-          const detailMsg = "Erreur de contrainte : mission_id doit correspondre à une mission existante. Les catégories spéciales (Congés, etc.) ne peuvent pas être enregistrées car elles ne sont pas dans la table missions.";
+        if (error.code === '23503') {
+          let detailMsg = "Erreur de contrainte : mission_id doit correspondre à une mission existante dans la table missions.";
+          if (entries.some(e => ['CONGES', 'FORMATION', 'INTERMISSION'].includes(e.missionId))) {
+            detailMsg = "Erreur de contrainte : Les catégories 'Congés', 'Formation', 'Intermission' doivent être créées comme missions internes en base pour pouvoir être enregistrées.";
+          }
           console.error(detailMsg);
           throw new Error(detailMsg);
         }
