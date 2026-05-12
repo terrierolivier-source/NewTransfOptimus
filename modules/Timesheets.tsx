@@ -26,6 +26,7 @@ import { fr } from 'date-fns/locale';
 interface TimesheetsProps {
   state: AppState;
   updateState: (newState: Partial<AppState>) => void;
+  setSaveStatus: (status: 'idle' | 'saving' | 'saved' | 'error') => void;
 }
 
 const APP_COLORS = {
@@ -44,10 +45,10 @@ const CATEGORIES = [
   { id: 'INTERMISSION', label: 'Inter mission', icon: Coffee, color: APP_COLORS.INTERMISSION },
 ];
 
-const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState }) => {
+const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStatus }) => {
   const [anchorWeek, setAnchorWeek] = useState(getMonday(new Date()));
   const [selectedUserId, setSelectedUserId] = useState(state.currentUser?.id || '');
-  
+
   const fyMonths = useMemo(() => {
     const fyYear = parseInt(state.globalFY.replace('FY', ''));
     // Fiscal year starts in Feb (index 1) and ends in Jan (index 0) of the next year
@@ -184,12 +185,21 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState }) => {
         status: TimesheetStatus.VALIDE 
     };
     
-    // Optimistic Update
-    const updatedTimesheets = [...state.timesheets, newEntry];
-    updateState({ timesheets: updatedTimesheets });
-    
-    // Cloud Sync
-    await syncTimesheetsToCloud([newEntry]);
+    try {
+      setSaveStatus('saving');
+      // Optimistic Update
+      const updatedTimesheets = [...state.timesheets, newEntry];
+      updateState({ timesheets: updatedTimesheets });
+      
+      // Cloud Sync
+      await syncTimesheetsToCloud([newEntry]);
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 2000);
+    } catch (err) {
+      console.error("Quick validate failed", err);
+      setSaveStatus('error');
+      // Optionally revert state? User didn't ask for it, but it would be cleaner.
+    }
   };
 
   const handleConfirmValidation = async () => {
@@ -216,35 +226,50 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState }) => {
       newTimesheets.push(entryToSync);
     }
     
-    // Optimistic Update
-    updateState({ timesheets: newTimesheets });
-    
-    // Cloud Sync
-    await syncTimesheetsToCloud([entryToSync]);
-    
-    setValidatingEntry(null);
+    try {
+      setSaveStatus('saving');
+      // Optimistic Update
+      updateState({ timesheets: newTimesheets });
+      
+      // Cloud Sync
+      await syncTimesheetsToCloud([entryToSync]);
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 2000);
+      setValidatingEntry(null);
+    } catch (err) {
+      console.error("Confirmation validation failed", err);
+      setSaveStatus('error');
+    }
   };
 
   const handleRemoveEntry = async (e: React.MouseEvent, entry: any) => {
     e.stopPropagation();
     if (!canEdit) return;
     
-    if (entry.isActual) {
-      updateState({ timesheets: state.timesheets.filter(t => t.id !== entry.id) });
-      await deleteTimesheetFromCloud(entry.id);
-    } else {
-      const cancelEntry: TimesheetEntry = { 
-        id: crypto.randomUUID(), 
-        userId: selectedUserId, 
-        collaboratorId: selectedUserId,
-        weekStart: entry.weekStart, 
-        missionId: entry.missionId, 
-        dayIndex: entry.dayIndex, 
-        percentage: 0, 
-        status: TimesheetStatus.VALIDE 
-      };
-      updateState({ timesheets: [...state.timesheets, cancelEntry] });
-      await syncTimesheetsToCloud([cancelEntry]);
+    try {
+      setSaveStatus('saving');
+      if (entry.isActual) {
+        updateState({ timesheets: state.timesheets.filter(t => t.id !== entry.id) });
+        await deleteTimesheetFromCloud(entry.id);
+      } else {
+        const cancelEntry: TimesheetEntry = { 
+          id: crypto.randomUUID(), 
+          userId: selectedUserId, 
+          collaboratorId: selectedUserId,
+          weekStart: entry.weekStart, 
+          missionId: entry.missionId, 
+          dayIndex: entry.dayIndex, 
+          percentage: 0, 
+          status: TimesheetStatus.VALIDE 
+        };
+        updateState({ timesheets: [...state.timesheets, cancelEntry] });
+        await syncTimesheetsToCloud([cancelEntry]);
+      }
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 2000);
+    } catch (err) {
+      console.error("Remove entry failed", err);
+      setSaveStatus('error');
     }
   };
 
@@ -265,15 +290,23 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState }) => {
       status: TimesheetStatus.VALIDE 
     };
 
-    updateState({ timesheets: [...state.timesheets, newEntry] });
-    
-    // Sync to cloud
-    await syncTimesheetsToCloud([newEntry]);
-    
-    setActiveMenuDay(null);
-    setValidatingEntry({ ...newEntry, isActual: true });
-    setValidationPercentage(isInternal ? 100 : 0);
-    setValidationComment('');
+    try {
+      setSaveStatus('saving');
+      updateState({ timesheets: [...state.timesheets, newEntry] });
+      
+      // Sync to cloud
+      await syncTimesheetsToCloud([newEntry]);
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 2000);
+      
+      setActiveMenuDay(null);
+      setValidatingEntry({ ...newEntry, isActual: true });
+      setValidationPercentage(isInternal ? 100 : 0);
+      setValidationComment('');
+    } catch (err) {
+      console.error("Add entry failed", err);
+      setSaveStatus('error');
+    }
   };
 
   const modalInfo = useMemo(() => {

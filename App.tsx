@@ -239,7 +239,7 @@ const App: React.FC = () => {
       case 'missions':
         return <Missions state={state} updateState={updateState} />;
       case 'timesheets':
-        return <Timesheets state={state} updateState={updateState} />;
+        return <Timesheets state={state} updateState={updateState} setSaveStatus={setSaveStatus} />;
       case 'planning':
         return <Planning state={state} updateState={updateState} />;
       case 'availability':

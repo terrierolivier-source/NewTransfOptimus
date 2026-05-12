@@ -162,7 +162,7 @@ const mapSupabaseToMission = (m: any): Mission => ({
 
 const mapPlanningToSupabase = (p: PlanningEntry) => {
   const payload: any = {
-    mission_id: nullableUuid(p.missionId),
+    mission_id: p.missionId, // mission_id is TEXT in Supabase, DO NOT use nullableUuid()
     // Force user_id to null because public.users is no longer the source for planning
     user_id: null,
     collaborator_id: nullableUuid(p.collaboratorId || p.userId), // Fallback to userId if collaboratorId is missing in state
@@ -207,7 +207,7 @@ const mapTimesheetToSupabase = (t: TimesheetEntry) => {
     // Force user_id to null because public.users is no longer the source for metadata
     user_id: null,
     collaborator_id: nullableUuid(t.collaboratorId || t.userId), // Fallback to userId if collaboratorId is missing in state
-    mission_id: nullableUuid(t.missionId),
+    mission_id: t.missionId, // mission_id is TEXT in Supabase, DO NOT use nullableUuid()
     week_start: t.weekStart,
     day_index: t.dayIndex,
     percentage: t.percentage,
@@ -268,49 +268,61 @@ export const syncMissionToCloud = async (mission: Mission) => {
         payload,
         mission
       });
+      throw error;
     }
   } catch (e) {
     console.error('Supabase Mission sync exception:', e);
+    throw e;
   }
 };
 
 export const deleteMissionFromCloud = async (missionId: string) => {
   try {
-    await supabase.from('missions').delete().eq('id', missionId);
+    const { error } = await supabase.from('missions').delete().eq('id', missionId);
+    if (error) throw error;
   } catch (e) {
     console.error('Supabase Mission delete failed', e);
+    throw e;
   }
 };
 
 export const deletePlanningEntriesForMission = async (missionId: string) => {
   try {
-    await supabase.from('planning').delete().eq('mission_id', missionId);
+    const { error } = await supabase.from('planning').delete().eq('mission_id', missionId);
+    if (error) throw error;
   } catch (e) {
     console.error('Supabase Planning delete failed', e);
+    throw e;
   }
 };
 
 export const syncUserToCloud = async (user: User) => {
   try {
-    await supabase.from('users').upsert(mapUserToSupabase(user));
+    const { error } = await supabase.from('users').upsert(mapUserToSupabase(user));
+    if (error) throw error;
   } catch (e) {
     console.error('Supabase User sync failed', e);
+    throw e;
   }
 };
 
 export const syncCollaboratorToCloud = async (collaborator: Collaborator) => {
   try {
-    await supabase.from('collaborators').upsert(mapCollaboratorToSupabase(collaborator));
+    const { error } = await supabase.from('collaborators').upsert(mapCollaboratorToSupabase(collaborator));
+    if (error) throw error;
   } catch (e) {
     console.error('Supabase Collaborator sync failed', e);
+    throw e;
   }
 };
 
 export const deleteCollaboratorFromCloud = async (id: string) => {
   try {
-    await supabase.from('collaborators').delete().eq('id', id);
+    const { error } = await supabase.from('collaborators').delete().eq('id', id);
+    if (error) throw error;
   } catch (e) {
     console.error('Supabase Collaborator delete failed', e);
+    throw e;
   }
 };
 
@@ -342,10 +354,12 @@ export const syncPlanningToCloud = async (planning: PlanningEntry[]) => {
           chunk,
           originalPlanning: planning.slice(i, i + CHUNK_SIZE)
         });
+        throw error;
       }
     }
   } catch (e) {
     console.error('Supabase Planning sync exception:', e);
+    throw e;
   }
 };
 
@@ -377,10 +391,12 @@ export const syncTimesheetsToCloud = async (entries: TimesheetEntry[]) => {
           chunk,
           originalEntries: entries.slice(i, i + CHUNK_SIZE)
         });
+        throw error;
       }
     }
   } catch (e) {
     console.error('Supabase Timesheet sync exception:', e);
+    throw e;
   }
 };
 
