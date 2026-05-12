@@ -15,7 +15,7 @@ import {
   ResponsiveContainer, PieChart, Pie, Cell, Label, LabelList,
   LineChart, Line, ReferenceLine, ReferenceArea, ComposedChart, Area
 } from 'recharts';
-import { getBusinessDays, getMonday, getFiscalYear, calculateSmoothedMissionRevenue, calculateTotalMissionRevenue } from '../utils';
+import { getBusinessDays, getMonday, getFiscalYear, calculateSmoothedMissionRevenue, calculateTotalMissionRevenue, isWorkingDay } from '../utils';
 import { parseISO, format, isAfter, startOfToday, subWeeks, endOfWeek, eachDayOfInterval, isBefore, startOfDay, endOfDay, startOfWeek, endOfMonth, addDays, eachWeekOfInterval, isValid, max, min, differenceInDays, startOfMonth, isSameDay } from 'date-fns';
 
 interface DashboardProps {
@@ -296,7 +296,13 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
       const userEffectiveEnd = isBefore(leavingDate, ytdEnd) ? endOfDay(leavingDate) : ytdEnd;
       if (isAfter(userEffectiveStart, userEffectiveEnd)) return;
       const bDays = getBusinessDays(userEffectiveStart, userEffectiveEnd, [], collab.country);
-      if (bDays.length === 0) return;
+      if (bDays.length === 0) {
+        if (!isWorkingDay(userEffectiveStart)) {
+          globalSumOfAverages += 100;
+          validUsersCount++;
+        }
+        return;
+      }
 
       validUsersCount++;
       const userPlanning = planning.filter(p => p.collaboratorId === collab.id || p.userId === collab.id);

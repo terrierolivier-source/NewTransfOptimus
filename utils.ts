@@ -22,10 +22,15 @@ export const formatDateDisplay = (date: Date | string): string => {
   return format(new Date(date), 'dd/MM/yyyy');
 };
 
+export const isWorkingDay = (date: Date): boolean => {
+  const day = date.getDay();
+  return day !== 0 && day !== 6; // 0 = Sunday, 6 = Saturday
+};
+
 export const getBusinessDays = (start: Date, end: Date, holidays: Holiday[], country: Country): Date[] => {
   const days = eachDayOfInterval({ start, end });
   return days.filter(day => {
-    if (isWeekend(day)) return false;
+    if (!isWorkingDay(day)) return false;
     const isHoliday = holidays.some(h => h.country === country && isSameDay(new Date(h.date), day));
     return !isHoliday;
   });

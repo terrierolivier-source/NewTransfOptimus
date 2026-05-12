@@ -46,7 +46,7 @@ import {
   GraduationCap,
   Coffee
 } from 'lucide-react';
-import { getBusinessDays } from '../utils';
+import { getBusinessDays, isWorkingDay } from '../utils';
 import { syncPlanningToCloud } from '../services/dataService';
 
 interface AvailabilityProps {
@@ -139,7 +139,14 @@ const Availability: React.FC<AvailabilityProps> = ({ state, updateState }) => {
     const userTimesheets = state.timesheets.filter(t => t.userId === user.id);
     
     const businessDays = getBusinessDays(period.start, period.end, [], user.country);
-    if (businessDays.length === 0) return 0;
+    if (businessDays.length === 0) {
+      // If we are on a non-working day (e.g. looking at a Saturday), 
+      // we should not show 100% availability. Returning 100% occupancy (0 availability) 
+      // for weekends/holidays is safer, or simply ignoring it.
+      // But the user wants them "ignored" in the denominator of the average. 
+      // For a single day that is not a working day, 100% occupancy (0% availability) is more accurate.
+      return isWorkingDay(period.start) ? 0 : 100;
+    }
 
     let totalOccupancyAcrossPeriod = 0;
 
@@ -233,7 +240,7 @@ const Availability: React.FC<AvailabilityProps> = ({ state, updateState }) => {
       const tsInPeriod = userTimesheets.filter(t => {
         const tDate = parseISO(t.weekStart);
         const tEnd = endOfWeek(tDate, { weekStartsOn: 1 });
-        return (tDate <= period.end && tEnd >= period.start);
+        return (tDate <= period.end && tEnd >= period.start) && isWorkingDay(addDays(tDate, t.dayIndex));
       }).filter(t => (t.missionId === mId || t.activityType === mId));
 
       if (planningInPeriod.length === 0 && tsInPeriod.length === 0) return null;
@@ -245,7 +252,7 @@ const Availability: React.FC<AvailabilityProps> = ({ state, updateState }) => {
       }
 
       const avgOccupancy = tsInPeriod.length > 0 
-        ? Math.round(tsInPeriod.reduce((acc, t) => acc + t.percentage, 0) / (tsInPeriod.length || 1))
+        ? Math.round(tsInPeriod.reduce((acc, t) => acc + t.percentage, 0) / tsInPeriod.length)
         : Math.round(planningInPeriod.reduce((acc, p) => acc + p.percentage, 0) / (planningInPeriod.length || 1)) || 0;
 
       const firstEntry = planningInPeriod[0] || userPlanning.find(p => p.missionId === mId);
