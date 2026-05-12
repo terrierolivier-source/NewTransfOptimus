@@ -15,7 +15,7 @@ import {
   ResponsiveContainer, PieChart, Pie, Cell, Label, LabelList,
   LineChart, Line, ReferenceLine, ReferenceArea, ComposedChart, Area
 } from 'recharts';
-import { getBusinessDays, getMonday, getFiscalYear, calculateSmoothedMissionRevenue, calculateTotalMissionRevenue, isWorkingDay } from '../utils';
+import { getBusinessDays, getMonday, getFiscalYear, calculateSmoothedMissionRevenue, calculateTotalMissionRevenue, isWorkingDay, getDedupedTimesheets } from '../utils';
 import { parseISO, format, isAfter, startOfToday, subWeeks, endOfWeek, eachDayOfInterval, isBefore, startOfDay, endOfDay, startOfWeek, endOfMonth, addDays, eachWeekOfInterval, isValid, max, min, differenceInDays, startOfMonth, isSameDay } from 'date-fns';
 
 interface DashboardProps {
@@ -23,9 +23,18 @@ interface DashboardProps {
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ state }) => {
-  const { missions, planning, timesheets, collaborators, globalCountry, globalFY, budgetValues, holidays, manualExpenses } = state;
+  const { missions, planning, timesheets: rawTimesheets, collaborators, globalCountry, globalFY, budgetValues, holidays, manualExpenses } = state;
   const today = startOfToday();
   const [selectedTypology, setSelectedTypology] = useState<string | null>(null);
+
+  // Centralized deduplication for all Dashboard calculations
+  const timesheets = useMemo(() => {
+    const deduped = getDedupedTimesheets(rawTimesheets);
+    if (rawTimesheets.length !== deduped.length) {
+      console.log(`[Dashboard] Deduped timesheets: ${rawTimesheets.length} -> ${deduped.length}`);
+    }
+    return deduped;
+  }, [rawTimesheets]);
 
   // Helper pour identifier les collaborateurs opérationnels éligibles pour le Dashboard
   const OPERATIONAL_GRADES = ["consultant", "delivery manager", "principal"];
@@ -320,10 +329,10 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
         const dayIdx = (day.getDay() + 6) % 7;
         const dayActuals = userTimesheets.filter(t => t.weekStart === monday && t.dayIndex === dayIdx && t.missionId !== 'INTERMISSION' && t.activityType !== 'INTERMISSION');
         if (dayActuals.length > 0) {
-          userTotalPercentage += dayActuals.reduce((acc, t) => acc + t.percentage, 0);
+          userTotalPercentage += Math.min(100, dayActuals.reduce((acc, t) => acc + t.percentage, 0));
         } else {
           const weekPlans = userPlanning.filter(p => p.weekStart === monday && p.missionId !== 'INTERMISSION');
-          userTotalPercentage += weekPlans.reduce((acc, p) => acc + p.percentage, 0);
+          userTotalPercentage += Math.min(100, weekPlans.reduce((acc, p) => acc + p.percentage, 0));
         }
       });
       globalSumOfAverages += (userTotalPercentage / bDays.length);
@@ -431,10 +440,10 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
               const dayIdx = (day.getDay() + 6) % 7;
               if (isBefore(day, today)) {
                  const dayActuals = timesheets.filter(t => (t.collaboratorId === collab.id || t.userId === collab.id) && t.weekStart === monday && t.dayIndex === dayIdx && t.status === 'Validé' && t.missionId !== 'INTERMISSION' && t.activityType !== 'INTERMISSION');
-                 totalLoad += dayActuals.reduce((acc, t) => acc + t.percentage, 0);
+                 totalLoad += Math.min(100, dayActuals.reduce((acc, t) => acc + t.percentage, 0));
               } else {
                  const dayPlans = planning.filter(p => (p.collaboratorId === collab.id || p.userId === collab.id) && p.weekStart === monday && p.missionId !== 'INTERMISSION');
-                 totalLoad += dayPlans.reduce((acc, p) => acc + p.percentage, 0);
+                 totalLoad += Math.min(100, dayPlans.reduce((acc, p) => acc + p.percentage, 0));
               }
             });
           }
@@ -544,7 +553,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
         const dayTotal = collabTS
           .filter(t => t.weekStart === monday && t.dayIndex === dayIdx)
           .reduce((acc, t) => acc + t.percentage, 0);
-        return dayTotal < 100;
+        return Math.min(100, dayTotal) < 100;
       });
     });
     

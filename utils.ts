@@ -64,6 +64,33 @@ export const normalizeTimesheetEntry = (entry: any) => {
   };
 };
 
+export const getDedupedTimesheets = (entries: any[]): any[] => {
+  if (!entries || entries.length === 0) return [];
+  
+  const dedupMap = new Map<string, any>();
+  
+  // Sort entries to make sure the "newest" ones are processed last OR we use logic with timestamps
+  // If we order by updated_at DESC in the loop, we keep the first one we find.
+  
+  const sorted = [...entries].sort((a, b) => {
+    const dateA = new Date(a.updatedAt || a.created_at || a.createdAt || 0).getTime();
+    const dateB = new Date(b.updatedAt || b.created_at || b.createdAt || 0).getTime();
+    return dateB - dateA; // Descending: newest first
+  });
+
+  sorted.forEach(entry => {
+    const { missionId, activityType } = normalizeTimesheetEntry(entry);
+    // Business key: collab + mission + activity + week + day
+    const key = `${entry.collaboratorId || entry.userId}|${missionId || 'null'}|${activityType || 'null'}|${entry.weekStart}|${entry.dayIndex}`;
+    
+    if (!dedupMap.has(key)) {
+      dedupMap.set(key, { ...entry, missionId, activityType });
+    }
+  });
+
+  return Array.from(dedupMap.values());
+};
+
 export const calculateMonthlySmoothedRevenue = (mission: Mission): number => {
   const mStart = parseISO(mission.startDate);
   const mEnd = parseISO(mission.endDate);

@@ -18,7 +18,7 @@ import {
   Calendar
 } from 'lucide-react';
 import { AppState, TimesheetEntry, TimesheetStatus, MissionStatus, Role } from '../types';
-import { getFiscalYear, getMonday, normalizeTimesheetEntry } from '../utils';
+import { getFiscalYear, getMonday, normalizeTimesheetEntry, getDedupedTimesheets } from '../utils';
 import { syncTimesheetsToCloud, loadTimesheetsFromCloud, deleteTimesheetFromCloud, isValidUuid, fetchExistingTimesheetByBusinessKey } from '../services/dataService';
 import { addWeeks, addDays, format, isSameDay, parseISO, isWithinInterval, getMonth } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -54,8 +54,18 @@ const Timesheets: React.FC<TimesheetsProps> = ({
   removeTimesheetFromState, 
   setSaveStatus 
 }) => {
+  const { timesheets: rawTimesheets } = state;
   const [anchorWeek, setAnchorWeek] = useState(getMonday(new Date()));
   const [selectedUserId, setSelectedUserId] = useState(state.currentUser?.id || '');
+
+  // Deduplicate timesheets for display and logic
+  const timesheets = useMemo(() => {
+    const deduped = getDedupedTimesheets(rawTimesheets);
+    if (rawTimesheets.length !== deduped.length) {
+      console.log(`[Timesheets] Deduped displayed records: ${rawTimesheets.length} -> ${deduped.length}`);
+    }
+    return deduped;
+  }, [rawTimesheets]);
 
   const fyMonths = useMemo(() => {
     const fyYear = parseInt(state.globalFY.replace('FY', ''));

@@ -1,7 +1,7 @@
 import { AppState, Country, Mission, MissionStatus, BillingMode, PlanningEntry, TimesheetEntry, InternalStaffing, ManualExpense, BudgetFamily, Holiday, User, Collaborator, CollaboratorType, Role } from '../types';
 import React from 'react';
 import { parseCSVUsers, SEED_MISSIONS_RAW } from '../constants';
-import { getFiscalYear, generateId } from '../utils';
+import { getFiscalYear, generateId, getDedupedTimesheets } from '../utils';
 import { startOfWeek, addWeeks, format, parseISO, isWithinInterval, eachWeekOfInterval } from 'date-fns';
 import { supabase } from './supabase';
 
@@ -435,17 +435,7 @@ export const loadTimesheetsFromCloud = async (): Promise<TimesheetEntry[]> => {
     const countBeforeDedup = allData.length;
     const rawEntries = allData.map(t => mapSupabaseToTimesheet(t));
     
-    const dedupMap = new Map<string, TimesheetEntry>();
-    rawEntries.forEach(entry => {
-      const key = `${entry.collaboratorId}|${entry.missionId || 'null'}|${entry.activityType || 'null'}|${entry.weekStart}|${entry.dayIndex}`;
-      if (!dedupMap.has(key)) {
-        dedupMap.set(key, entry);
-      } else {
-        // If we found a duplicate, we already have the most recent one because of ORDER BY updated_at desc
-      }
-    });
-    
-    const result = Array.from(dedupMap.values());
+    const result = getDedupedTimesheets(rawEntries);
     console.log(`Loaded ${countBeforeDedup} timesheets, result after dedup: ${result.length}`);
     return result;
   } catch (e) {

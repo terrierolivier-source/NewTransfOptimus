@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { AppState, User, Role, Country } from './types';
 import { getInitialState, saveState, syncStateToCloud, createDailyBackup, loadStateFromCloud, setupRealtimeSync } from './services/dataService';
 import { onAuthStateChange, signOut, mapSupabaseUserToAppUser, getCurrentSession } from './services/authService';
-import { normalizeTimesheetEntry } from './utils';
+import { normalizeTimesheetEntry, getDedupedTimesheets } from './utils';
 import Layout from './components/Layout';
 import AccessGate, { APP_ACCESS_VERSION } from './components/AccessGate';
 import AdminGate, { ADMIN_ACCESS_VERSION } from './components/AdminGate';
@@ -185,32 +185,12 @@ const App: React.FC = () => {
       const normalizedEntry = {
         ...entry,
         missionId,
-        activityType
+        activityType,
+        updatedAt: entry.updatedAt || new Date().toISOString()
       };
 
-      // Search by ID first
-      const existingById = currentTimesheets.find(t => t.id === normalizedEntry.id);
-      
-      let updatedTimesheets;
-      if (existingById) {
-        updatedTimesheets = currentTimesheets.map(t => t.id === normalizedEntry.id ? normalizedEntry : t);
-      } else {
-        // Search by logical key to avoid duplicates if ID is different but business key matches
-        const existingIdx = currentTimesheets.findIndex(t => 
-          t.collaboratorId === normalizedEntry.collaboratorId &&
-          (t.missionId || null) === normalizedEntry.missionId &&
-          (t.activityType || null) === normalizedEntry.activityType &&
-          t.weekStart === normalizedEntry.weekStart &&
-          t.dayIndex === normalizedEntry.dayIndex
-        );
-
-        if (existingIdx >= 0) {
-          updatedTimesheets = [...currentTimesheets];
-          updatedTimesheets[existingIdx] = normalizedEntry;
-        } else {
-          updatedTimesheets = [...currentTimesheets, normalizedEntry];
-        }
-      }
+      // We append and then dedup the whole thing to be absolutely safe
+      const updatedTimesheets = getDedupedTimesheets([...currentTimesheets, normalizedEntry]);
 
       return { ...prev, timesheets: updatedTimesheets };
     });

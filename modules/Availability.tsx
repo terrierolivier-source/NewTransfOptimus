@@ -46,7 +46,7 @@ import {
   GraduationCap,
   Coffee
 } from 'lucide-react';
-import { getBusinessDays, isWorkingDay } from '../utils';
+import { getBusinessDays, isWorkingDay, getDedupedTimesheets } from '../utils';
 import { syncPlanningToCloud } from '../services/dataService';
 
 interface AvailabilityProps {
@@ -90,8 +90,18 @@ const formatFiscalQuarter = (date: Date) => {
 };
 
 const Availability: React.FC<AvailabilityProps> = ({ state, updateState }) => {
+  const { timesheets: rawTimesheets } = state;
   const [timeScale, setTimeScale] = useState<TimeScale>('day');
   const [currentDate, setCurrentDate] = useState(startOfToday());
+
+  // Centralized deduplication for all Availability calculations
+  const timesheets = useMemo(() => {
+    const deduped = getDedupedTimesheets(rawTimesheets);
+    if (rawTimesheets.length !== deduped.length) {
+      console.log(`[Availability] Deduped timesheets: ${rawTimesheets.length} -> ${deduped.length}`);
+    }
+    return deduped;
+  }, [rawTimesheets]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedGrades, setSelectedGrades] = useState<Role[]>(DELIVERY_GRADES);
   const [showGradeDropdown, setShowGradeDropdown] = useState(false);
@@ -177,7 +187,7 @@ const Availability: React.FC<AvailabilityProps> = ({ state, updateState }) => {
         }
       });
       
-      totalOccupancyAcrossPeriod += dailySum;
+      totalOccupancyAcrossPeriod += Math.min(100, dailySum);
     });
 
     return totalOccupancyAcrossPeriod / businessDays.length;
