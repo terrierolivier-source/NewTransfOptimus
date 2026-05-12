@@ -125,7 +125,11 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
       dailyData[dayIdx] = dayActuals.map(e => ({ ...e, isActual: true }));
       
       planningForWeek.forEach(plan => {
-        const actualRow = dayActuals.find(a => a.missionId === plan.missionId);
+        const { missionId: normalizedPlanMissionId, activityType: normalizedPlanActivityType } = normalizeEntry(plan);
+        const actualRow = dayActuals.find(a => 
+          (a.missionId || null) === normalizedPlanMissionId && 
+          (a.activityType || null) === normalizedPlanActivityType
+        );
         if (!actualRow && plan.percentage > 0) {
           const mission = state.missions.find(m => m.id === plan.missionId);
           if (mission) {
@@ -161,6 +165,23 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
     return { weekKey, weekDays, dailyData, isDayHoliday, getDayTotal };
   };
 
+  const normalizeEntry = (entry: any) => {
+    const categories = ['CONGES', 'FORMATION', 'INTERMISSION'];
+    
+    // If it's already a normalized category (has activityType)
+    if (entry.activityType && categories.includes(entry.activityType)) {
+      return { missionId: null, activityType: entry.activityType };
+    }
+    
+    // If it's a category currently in missionId (from Planning or old Timesheet)
+    if (entry.missionId && categories.includes(entry.missionId)) {
+      return { missionId: null, activityType: entry.missionId };
+    }
+    
+    // Otherwise it's a real mission
+    return { missionId: entry.missionId || null, activityType: null };
+  };
+
   const handleOpenValidation = (entry: any) => {
     const weekData = getWeekData(parseISO(entry.weekStart));
     if (!canEdit || weekData.isDayHoliday(weekData.weekDays[entry.dayIndex])) return;
@@ -180,17 +201,13 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
       return;
     }
 
-    // Check if category/mission is a special category
-    const category = CATEGORIES.find(c => c.id === entry.missionId);
-    const missionId = category ? null : entry.missionId;
-    const activityType = category ? (category.id as any) : null;
+    const { missionId, activityType } = normalizeEntry(entry);
 
-    // Find existing timesheet to avoid duplicates
-    // Since state is deduplicated on load, find() is safe.
+    // Find existing timesheet to avoid duplicates using normalized key
     const existing = state.timesheets.find(t => 
       t.collaboratorId === selectedUserId && 
-      t.missionId === missionId && 
-      t.activityType === activityType &&
+      (t.missionId || null) === missionId && 
+      (t.activityType || null) === activityType &&
       t.weekStart === entry.weekStart && 
       t.dayIndex === entry.dayIndex
     );
@@ -240,23 +257,23 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
       return;
     }
 
-    const category = CATEGORIES.find(c => c.id === validatingEntry.missionId);
-    const missionId = category ? null : (validatingEntry.missionId || null);
-    const activityType = category ? (category.id as any) : (validatingEntry.activityType || null);
+    const { missionId, activityType } = normalizeEntry(validatingEntry);
 
     const numVal = Math.min(100, Math.max(0, validationPercentage));
     
     // Find existing timesheet to avoid duplicates
     const existing = state.timesheets.find(t => 
       t.collaboratorId === selectedUserId && 
-      t.missionId === missionId && 
-      t.activityType === activityType &&
+      (t.missionId || null) === missionId && 
+      (t.activityType || null) === activityType &&
       t.weekStart === validatingEntry.weekStart && 
       t.dayIndex === validatingEntry.dayIndex
     );
 
+    const id = existing?.id || (validatingEntry.isActual ? validatingEntry.id : crypto.randomUUID());
+
     const entryToSync: TimesheetEntry = { 
-      id: existing?.id || (validatingEntry.isActual ? validatingEntry.id : crypto.randomUUID()), 
+      id, 
       userId: selectedUserId, 
       collaboratorId: selectedUserId,
       weekStart: validatingEntry.weekStart, 
@@ -270,7 +287,7 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
     };
 
     const originalTimesheets = [...state.timesheets];
-    const newTimesheets = existing || validatingEntry.isActual
+    const newTimesheets = state.timesheets.some(t => t.id === entryToSync.id)
       ? state.timesheets.map(t => t.id === entryToSync.id ? entryToSync : t)
       : [...state.timesheets, entryToSync];
     
@@ -307,15 +324,18 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
         if (!isValidUuid(selectedUserId)) {
           throw new Error("UUID Collaborateur invalide");
         }
+        const { missionId, activityType } = normalizeEntry(entry);
         const cancelEntry: TimesheetEntry = { 
           id: crypto.randomUUID(), 
           userId: selectedUserId, 
           collaboratorId: selectedUserId,
           weekStart: entry.weekStart, 
-          missionId: entry.missionId, 
+          missionId: missionId as string, 
+          activityType: activityType as any,
           dayIndex: entry.dayIndex, 
           percentage: 0, 
-          status: TimesheetStatus.VALIDE 
+          status: TimesheetStatus.VALIDE,
+          updatedAt: new Date().toISOString()
         };
         updateState({ timesheets: [...state.timesheets, cancelEntry] });
         await syncTimesheetsToCloud([cancelEntry]);
@@ -338,15 +358,13 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
       return;
     }
     
-    const category = CATEGORIES.find(c => c.id === typeId);
-    const missionId = category ? null : typeId;
-    const activityType = category ? (category.id as any) : null;
+    const { missionId, activityType } = normalizeEntry({ missionId: typeId });
 
     // Find existing to avoid duplicates
     const existing = state.timesheets.find(t => 
       t.collaboratorId === selectedUserId && 
-      t.missionId === missionId && 
-      t.activityType === activityType &&
+      (t.missionId || null) === missionId && 
+      (t.activityType || null) === activityType &&
       t.weekStart === weekKey && 
       t.dayIndex === dayIndex
     );
@@ -359,7 +377,7 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
       missionId, 
       activityType,
       dayIndex: dayIndex, 
-      percentage: category ? 100 : 0,
+      percentage: CATEGORIES.some(c => c.id === typeId) ? 100 : 0,
       status: TimesheetStatus.VALIDE,
       comment: existing?.comment || '',
       updatedAt: new Date().toISOString()

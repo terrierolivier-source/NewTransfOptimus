@@ -203,12 +203,19 @@ const mapSupabaseToPlanning = (p: any): PlanningEntry => ({
 });
 
 const mapTimesheetToSupabase = (t: TimesheetEntry) => {
+  // Business logic: if it's a special activity, mission_id must be null and activity_type set
+  const categories = ['CONGES', 'FORMATION', 'INTERMISSION'];
+  const isSpecial = t.activityType ? categories.includes(t.activityType) : categories.includes(t.missionId || '');
+  
+  const activityType = t.activityType || (isSpecial ? t.missionId : null);
+  const missionId = isSpecial ? null : (t.missionId || null);
+
   const payload: any = {
     // Force user_id to null because public.users is no longer the source for metadata
     user_id: null,
     collaborator_id: nullableUuid(t.collaboratorId || t.userId), // Fallback to userId if collaboratorId is missing in state
-    mission_id: t.activityType ? null : t.missionId, // If it's a special activity, mission_id must be null
-    activity_type: t.activityType || null,
+    mission_id: missionId,
+    activity_type: activityType,
     week_start: t.weekStart,
     day_index: t.dayIndex,
     percentage: t.percentage,
@@ -220,29 +227,34 @@ const mapTimesheetToSupabase = (t: TimesheetEntry) => {
   const validId = nullableUuid(t.id);
   if (validId) {
     payload.id = validId;
-  } else {
-    // If id is not a valid UUID, we don't send it to let Supabase generate one or we could generate it here
-    // but the frontend should ideally have a UUID ready.
-    console.warn(`mapTimesheetToSupabase: entry id "${t.id}" is not a valid UUID. It will be sent without id to Supabase.`);
   }
 
   return payload;
 };
 
-const mapSupabaseToTimesheet = (t: any): TimesheetEntry => ({
-  id: t.id,
-  userId: t.user_id || t.collaborator_id, // Fallback for frontend logic
-  collaboratorId: t.collaborator_id || '',
-  missionId: t.mission_id,
-  weekStart: t.week_start,
-  dayIndex: t.day_index,
-  percentage: t.percentage,
-  status: t.status,
-  comment: t.comment,
-  activityType: t.activity_type,
-  updatedAt: t.updated_at,
-  createdAt: t.created_at
-});
+const mapSupabaseToTimesheet = (t: any): TimesheetEntry => {
+  // Normalize old format where activity might be in mission_id
+  const categories = ['CONGES', 'FORMATION', 'INTERMISSION'];
+  const isSpecialInMission = t.mission_id && categories.includes(t.mission_id);
+  
+  const missionId = isSpecialInMission ? null : t.mission_id;
+  const activityType = t.activity_type || (isSpecialInMission ? t.mission_id : null);
+
+  return {
+    id: t.id,
+    userId: t.user_id || t.collaborator_id, // Fallback for frontend logic
+    collaboratorId: t.collaborator_id || '',
+    missionId,
+    weekStart: t.week_start,
+    dayIndex: t.day_index,
+    percentage: t.percentage,
+    status: t.status,
+    comment: t.comment,
+    activityType,
+    updatedAt: t.updated_at,
+    createdAt: t.created_at
+  };
+};
 
 const parseCSVDate = (dateStr: string): string => {
   if (!dateStr) return '';
