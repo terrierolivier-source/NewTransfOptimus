@@ -38,6 +38,32 @@ export const getBusinessDays = (start: Date, end: Date, holidays: Holiday[], cou
 
 export const generateId = () => Math.random().toString(36).substr(2, 9);
 
+export const normalizeTimesheetEntry = (entry: any) => {
+  const categories = ['CONGES', 'FORMATION', 'INTERMISSION'];
+  
+  // If it's already a normalized category (has activityType)
+  if (entry.activityType && categories.includes(entry.activityType)) {
+    return { 
+      missionId: null, 
+      activityType: entry.activityType as 'CONGES' | 'FORMATION' | 'INTERMISSION' 
+    };
+  }
+  
+  // If it's a category currently in missionId (from Planning or old Timesheet)
+  if (entry.missionId && categories.includes(entry.missionId)) {
+    return { 
+      missionId: null, 
+      activityType: entry.missionId as 'CONGES' | 'FORMATION' | 'INTERMISSION' 
+    };
+  }
+  
+  // Otherwise it's a real mission
+  return { 
+    missionId: entry.missionId || null, 
+    activityType: null 
+  };
+};
+
 export const calculateMonthlySmoothedRevenue = (mission: Mission): number => {
   const mStart = parseISO(mission.startDate);
   const mEnd = parseISO(mission.endDate);

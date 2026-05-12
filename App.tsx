@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { AppState, User, Role, Country } from './types';
 import { getInitialState, saveState, syncStateToCloud, createDailyBackup, loadStateFromCloud, setupRealtimeSync } from './services/dataService';
 import { onAuthStateChange, signOut, mapSupabaseUserToAppUser, getCurrentSession } from './services/authService';
+import { normalizeTimesheetEntry } from './utils';
 import Layout from './components/Layout';
 import AccessGate, { APP_ACCESS_VERSION } from './components/AccessGate';
 import AdminGate, { ADMIN_ACCESS_VERSION } from './components/AdminGate';
@@ -15,6 +16,7 @@ import Availability from './modules/Availability';
 import BudgetTracking from './modules/BudgetTracking';
 import LoginPage from './components/LoginPage';
 import { CheckCircle, AlertTriangle, RefreshCw } from 'lucide-react';
+import { TimesheetEntry } from './types';
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>(getInitialState());
@@ -175,6 +177,70 @@ const App: React.FC = () => {
     setState(prev => ({ ...prev, ...newState }));
   };
 
+  const upsertTimesheetInState = (entry: TimesheetEntry) => {
+    setState(prev => {
+      const currentTimesheets = prev.timesheets || [];
+      const { missionId, activityType } = normalizeTimesheetEntry(entry);
+      
+      const normalizedEntry = {
+        ...entry,
+        missionId,
+        activityType
+      };
+
+      // Search by ID first
+      const existingById = currentTimesheets.find(t => t.id === normalizedEntry.id);
+      
+      let updatedTimesheets;
+      if (existingById) {
+        updatedTimesheets = currentTimesheets.map(t => t.id === normalizedEntry.id ? normalizedEntry : t);
+      } else {
+        // Search by logical key to avoid duplicates if ID is different but business key matches
+        const existingIdx = currentTimesheets.findIndex(t => 
+          t.collaboratorId === normalizedEntry.collaboratorId &&
+          (t.missionId || null) === normalizedEntry.missionId &&
+          (t.activityType || null) === normalizedEntry.activityType &&
+          t.weekStart === normalizedEntry.weekStart &&
+          t.dayIndex === normalizedEntry.dayIndex
+        );
+
+        if (existingIdx >= 0) {
+          updatedTimesheets = [...currentTimesheets];
+          updatedTimesheets[existingIdx] = normalizedEntry;
+        } else {
+          updatedTimesheets = [...currentTimesheets, normalizedEntry];
+        }
+      }
+
+      return { ...prev, timesheets: updatedTimesheets };
+    });
+  };
+
+  const removeTimesheetFromState = (idOrEntry: string | TimesheetEntry) => {
+    setState(prev => {
+      const currentTimesheets = prev.timesheets || [];
+      const id = typeof idOrEntry === 'string' ? idOrEntry : idOrEntry.id;
+      
+      let updatedTimesheets;
+      if (id && id.length > 10) { // Valid UUID usually
+        updatedTimesheets = currentTimesheets.filter(t => t.id !== id);
+      } else if (typeof idOrEntry !== 'string') {
+        const { missionId, activityType } = normalizeTimesheetEntry(idOrEntry);
+        updatedTimesheets = currentTimesheets.filter(t => !(
+          t.collaboratorId === idOrEntry.collaboratorId &&
+          (t.missionId || null) === missionId &&
+          (t.activityType || null) === activityType &&
+          t.weekStart === idOrEntry.weekStart &&
+          t.dayIndex === idOrEntry.dayIndex
+        ));
+      } else {
+        updatedTimesheets = currentTimesheets;
+      }
+      
+      return { ...prev, timesheets: updatedTimesheets };
+    });
+  };
+
   const handleLogout = async () => {
     try {
       await signOut();
@@ -239,7 +305,15 @@ const App: React.FC = () => {
       case 'missions':
         return <Missions state={state} updateState={updateState} />;
       case 'timesheets':
-        return <Timesheets state={state} updateState={updateState} setSaveStatus={setSaveStatus} />;
+        return (
+          <Timesheets 
+            state={state} 
+            updateState={updateState} 
+            upsertTimesheetInState={upsertTimesheetInState}
+            removeTimesheetFromState={removeTimesheetFromState}
+            setSaveStatus={setSaveStatus} 
+          />
+        );
       case 'planning':
         return <Planning state={state} updateState={updateState} />;
       case 'availability':

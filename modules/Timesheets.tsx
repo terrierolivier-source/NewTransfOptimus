@@ -18,7 +18,7 @@ import {
   Calendar
 } from 'lucide-react';
 import { AppState, TimesheetEntry, TimesheetStatus, MissionStatus, Role } from '../types';
-import { getMonday } from '../utils';
+import { getFiscalYear, getMonday, normalizeTimesheetEntry } from '../utils';
 import { syncTimesheetsToCloud, loadTimesheetsFromCloud, deleteTimesheetFromCloud, isValidUuid } from '../services/dataService';
 import { addWeeks, addDays, format, isSameDay, parseISO, isWithinInterval, getMonth } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -26,6 +26,8 @@ import { fr } from 'date-fns/locale';
 interface TimesheetsProps {
   state: AppState;
   updateState: (newState: Partial<AppState>) => void;
+  upsertTimesheetInState: (entry: TimesheetEntry) => void;
+  removeTimesheetFromState: (idOrEntry: string | TimesheetEntry) => void;
   setSaveStatus: (status: 'idle' | 'saving' | 'saved' | 'error') => void;
 }
 
@@ -45,7 +47,13 @@ const CATEGORIES = [
   { id: 'INTERMISSION', label: 'Inter mission', icon: Coffee, color: APP_COLORS.INTERMISSION },
 ];
 
-const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStatus }) => {
+const Timesheets: React.FC<TimesheetsProps> = ({ 
+  state, 
+  updateState, 
+  upsertTimesheetInState, 
+  removeTimesheetFromState, 
+  setSaveStatus 
+}) => {
   const [anchorWeek, setAnchorWeek] = useState(getMonday(new Date()));
   const [selectedUserId, setSelectedUserId] = useState(state.currentUser?.id || '');
 
@@ -125,7 +133,7 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
       dailyData[dayIdx] = dayActuals.map(e => ({ ...e, isActual: true }));
       
       planningForWeek.forEach(plan => {
-        const { missionId: normalizedPlanMissionId, activityType: normalizedPlanActivityType } = normalizeEntry(plan);
+        const { missionId: normalizedPlanMissionId, activityType: normalizedPlanActivityType } = normalizeTimesheetEntry(plan);
         const actualRow = dayActuals.find(a => 
           (a.missionId || null) === normalizedPlanMissionId && 
           (a.activityType || null) === normalizedPlanActivityType
@@ -165,23 +173,6 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
     return { weekKey, weekDays, dailyData, isDayHoliday, getDayTotal };
   };
 
-  const normalizeEntry = (entry: any) => {
-    const categories = ['CONGES', 'FORMATION', 'INTERMISSION'];
-    
-    // If it's already a normalized category (has activityType)
-    if (entry.activityType && categories.includes(entry.activityType)) {
-      return { missionId: null, activityType: entry.activityType };
-    }
-    
-    // If it's a category currently in missionId (from Planning or old Timesheet)
-    if (entry.missionId && categories.includes(entry.missionId)) {
-      return { missionId: null, activityType: entry.missionId };
-    }
-    
-    // Otherwise it's a real mission
-    return { missionId: entry.missionId || null, activityType: null };
-  };
-
   const handleOpenValidation = (entry: any) => {
     const weekData = getWeekData(parseISO(entry.weekStart));
     if (!canEdit || weekData.isDayHoliday(weekData.weekDays[entry.dayIndex])) return;
@@ -201,9 +192,10 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
       return;
     }
 
-    const { missionId, activityType } = normalizeEntry(entry);
+    const { missionId, activityType } = normalizeTimesheetEntry(entry);
 
-    // Find existing timesheet to avoid duplicates using normalized key
+    // Search by logical key in FRESH state to avoid duplicates
+    // Note: We use atomic update in state, so we just need a UUID to start with
     const existing = state.timesheets.find(t => 
       t.collaboratorId === selectedUserId && 
       (t.missionId || null) === missionId && 
@@ -226,24 +218,22 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
         updatedAt: new Date().toISOString()
     };
     
-    const originalTimesheets = [...state.timesheets];
     try {
       setSaveStatus('saving');
-      // Optimistic Update
-      const updatedTimesheets = existing 
-        ? state.timesheets.map(t => t.id === existing.id ? newEntry : t)
-        : [...state.timesheets, newEntry];
-        
-      updateState({ timesheets: updatedTimesheets });
       
-      // Cloud Sync
+      // Cloud Sync first (safest if we want to ensure persistence before state change)
+      // or state update first (optimistic). The instructions suggest atomic state update based on prev.
       await syncTimesheetsToCloud([newEntry]);
+      
+      // Atomic Update in State
+      upsertTimesheetInState(newEntry);
+      
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus('idle'), 2000);
     } catch (err: any) {
       console.error("Quick validate failed", err);
-      // Revert state if sync failed
-      updateState({ timesheets: originalTimesheets });
+      // No need to revert global state as we didn't use updateState({ timesheets: ... })
+      // But we might want to inform user precisely.
       setSaveStatus('error');
     }
   };
@@ -257,11 +247,11 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
       return;
     }
 
-    const { missionId, activityType } = normalizeEntry(validatingEntry);
+    const { missionId, activityType } = normalizeTimesheetEntry(validatingEntry);
 
     const numVal = Math.min(100, Math.max(0, validationPercentage));
     
-    // Find existing timesheet to avoid duplicates
+    // Find existing to avoid duplicates (to get the ID)
     const existing = state.timesheets.find(t => 
       t.collaboratorId === selectedUserId && 
       (t.missionId || null) === missionId && 
@@ -286,25 +276,20 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
       updatedAt: new Date().toISOString()
     };
 
-    const originalTimesheets = [...state.timesheets];
-    const newTimesheets = state.timesheets.some(t => t.id === entryToSync.id)
-      ? state.timesheets.map(t => t.id === entryToSync.id ? entryToSync : t)
-      : [...state.timesheets, entryToSync];
-    
     try {
       setSaveStatus('saving');
-      // Optimistic Update
-      updateState({ timesheets: newTimesheets });
       
       // Cloud Sync
       await syncTimesheetsToCloud([entryToSync]);
+      
+      // Atomic State Update
+      upsertTimesheetInState(entryToSync);
+      
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus('idle'), 2000);
       setValidatingEntry(null);
     } catch (err) {
       console.error("Confirmation validation failed", err);
-      // Revert state
-      updateState({ timesheets: originalTimesheets });
       setSaveStatus('error');
     }
   };
@@ -319,12 +304,12 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
         if (isValidUuid(entry.id)) {
           await deleteTimesheetFromCloud(entry.id);
         }
-        updateState({ timesheets: state.timesheets.filter(t => t.id !== entry.id) });
+        removeTimesheetFromState(entry.id);
       } else {
         if (!isValidUuid(selectedUserId)) {
           throw new Error("UUID Collaborateur invalide");
         }
-        const { missionId, activityType } = normalizeEntry(entry);
+        const { missionId, activityType } = normalizeTimesheetEntry(entry);
         const cancelEntry: TimesheetEntry = { 
           id: crypto.randomUUID(), 
           userId: selectedUserId, 
@@ -337,8 +322,9 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
           status: TimesheetStatus.VALIDE,
           updatedAt: new Date().toISOString()
         };
-        updateState({ timesheets: [...state.timesheets, cancelEntry] });
+        
         await syncTimesheetsToCloud([cancelEntry]);
+        upsertTimesheetInState(cancelEntry);
       }
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus('idle'), 2000);
@@ -358,7 +344,7 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
       return;
     }
     
-    const { missionId, activityType } = normalizeEntry({ missionId: typeId });
+    const { missionId, activityType } = normalizeTimesheetEntry({ missionId: typeId });
 
     // Find existing to avoid duplicates
     const existing = state.timesheets.find(t => 
@@ -383,17 +369,15 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
       updatedAt: new Date().toISOString()
     };
 
-    const originalTimesheets = [...state.timesheets];
     try {
       setSaveStatus('saving');
-      const updatedTimesheets = existing
-        ? state.timesheets.map(t => t.id === existing.id ? newEntry : t)
-        : [...state.timesheets, newEntry];
-
-      updateState({ timesheets: updatedTimesheets });
       
       // Sync to cloud
       await syncTimesheetsToCloud([newEntry]);
+      
+      // Atomic State Update
+      upsertTimesheetInState(newEntry);
+      
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus('idle'), 2000);
       
@@ -403,8 +387,6 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
       setValidationComment(newEntry.comment || '');
     } catch (err: any) {
       console.error("Add entry failed", err);
-      // Revert state
-      updateState({ timesheets: originalTimesheets });
       setSaveStatus('error');
     }
   };
