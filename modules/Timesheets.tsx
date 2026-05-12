@@ -191,6 +191,7 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
     }
 
     // Find existing timesheet to avoid duplicates
+    // Since state is deduplicated on load, find() is safe.
     const existing = state.timesheets.find(t => 
       t.collaboratorId === selectedUserId && 
       t.missionId === entry.missionId && 
@@ -207,7 +208,8 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
         dayIndex: entry.dayIndex, 
         percentage: entry.percentage, 
         comment: existing?.comment || '', 
-        status: TimesheetStatus.VALIDE 
+        status: TimesheetStatus.VALIDE,
+        updatedAt: new Date().toISOString()
     };
     
     const originalTimesheets = [...state.timesheets];
@@ -270,7 +272,8 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
       dayIndex: validatingEntry.dayIndex, 
       percentage: numVal, 
       comment: validationComment, 
-      status: TimesheetStatus.VALIDE 
+      status: TimesheetStatus.VALIDE,
+      updatedAt: new Date().toISOString()
     };
 
     const originalTimesheets = [...state.timesheets];
@@ -369,7 +372,8 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
       dayIndex: dayIndex, 
       percentage: isSpecialCategory ? 100 : 0,
       status: TimesheetStatus.VALIDE,
-      comment: existing?.comment || ''
+      comment: existing?.comment || '',
+      updatedAt: new Date().toISOString()
     };
 
     const originalTimesheets = [...state.timesheets];

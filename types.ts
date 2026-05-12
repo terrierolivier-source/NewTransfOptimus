@@ -186,6 +186,8 @@ export interface TimesheetEntry {
   percentage: number;
   status: TimesheetStatus;
   comment?: string;
+  updatedAt?: string;
+  createdAt?: string;
 }
 
 export interface Holiday {

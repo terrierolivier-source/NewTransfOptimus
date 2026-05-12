@@ -237,7 +237,9 @@ const mapSupabaseToTimesheet = (t: any): TimesheetEntry => ({
   dayIndex: t.day_index,
   percentage: t.percentage,
   status: t.status,
-  comment: t.comment
+  comment: t.comment,
+  updatedAt: t.updated_at,
+  createdAt: t.created_at
 });
 
 const parseCSVDate = (dateStr: string): string => {
@@ -369,12 +371,30 @@ export const syncPlanningToCloud = async (planning: PlanningEntry[]) => {
 
 export const loadTimesheetsFromCloud = async (): Promise<TimesheetEntry[]> => {
   try {
-    const { data, error } = await supabase.from('timesheets').select('*');
+    const { data, error } = await supabase
+      .from('timesheets')
+      .select('*')
+      .order('updated_at', { ascending: false });
+      
     if (error) {
       console.error('Error loading timesheets from Supabase:', error);
       return [];
     }
-    return data ? data.map(t => mapSupabaseToTimesheet(t)) : [];
+    if (!data) return [];
+    
+    const rawEntries = data.map(t => mapSupabaseToTimesheet(t));
+    
+    // Deduplicate: keep only the most recent one for each business key
+    const dedupMap = new Map<string, TimesheetEntry>();
+    rawEntries.forEach(entry => {
+      const key = `${entry.collaboratorId}|${entry.missionId}|${entry.weekStart}|${entry.dayIndex}`;
+      // Since we ordered by updated_at DESC, the first one we see is the most recent
+      if (!dedupMap.has(key)) {
+        dedupMap.set(key, entry);
+      }
+    });
+    
+    return Array.from(dedupMap.values());
   } catch (e) {
     console.error('Exception loading timesheets from Supabase:', e);
     return [];
@@ -549,8 +569,8 @@ export const loadStateFromCloud = async (): Promise<Partial<AppState>> => {
     const { data: planning } = await supabase.from('planning').select('*');
     if (planning) results.planning = planning.map(p => mapSupabaseToPlanning(p));
 
-    const { data: timesheets } = await supabase.from('timesheets').select('*');
-    if (timesheets) results.timesheets = timesheets.map(t => mapSupabaseToTimesheet(t));
+    const timesheets = await loadTimesheetsFromCloud();
+    results.timesheets = timesheets;
 
     if (results.globalFY) {
       const { data: budget } = await supabase.from('budget_data').select('*').eq('fy', results.globalFY).single();
