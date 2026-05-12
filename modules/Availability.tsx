@@ -148,13 +148,13 @@ const Availability: React.FC<AvailabilityProps> = ({ state, updateState }) => {
 
       const missionIds = Array.from(new Set([
         ...userPlanning.filter(p => p.weekStart === monday).map(p => p.missionId),
-        ...userTimesheets.filter(t => t.weekStart === monday && t.dayIndex === dayIdx).map(t => t.missionId)
+        ...userTimesheets.filter(t => t.weekStart === monday && t.dayIndex === dayIdx).map(t => t.missionId || t.activityType)
       ]));
 
       let dailySum = 0;
       missionIds.forEach(mId => {
-        if (mId === 'INTERMISSION') return;
-        const real = userTimesheets.find(t => t.weekStart === monday && t.dayIndex === dayIdx && t.missionId === mId)?.percentage;
+        if (!mId || mId === 'INTERMISSION') return;
+        const real = userTimesheets.find(t => t.weekStart === monday && t.dayIndex === dayIdx && (t.missionId === mId || t.activityType === mId))?.percentage;
         if (real !== undefined) {
           dailySum += real;
         } else {
@@ -208,10 +208,10 @@ const Availability: React.FC<AvailabilityProps> = ({ state, updateState }) => {
     
     const missionIds = Array.from(new Set([
       ...userPlanning.map(p => p.missionId),
-      ...userTimesheets.map(t => t.missionId)
+      ...userTimesheets.map(t => t.missionId || t.activityType)
     ]));
 
-    return missionIds.map(mId => {
+    return missionIds.filter(Boolean).map(mId => {
       const mission = state.missions.find(m => m.id === mId);
       const category = CATEGORIES.find(c => c.id === mId);
 
@@ -227,7 +227,7 @@ const Availability: React.FC<AvailabilityProps> = ({ state, updateState }) => {
         const tDate = parseISO(t.weekStart);
         const tEnd = endOfWeek(tDate, { weekStartsOn: 1 });
         return (tDate <= period.end && tEnd >= period.start);
-      }).filter(t => t.missionId === mId);
+      }).filter(t => (t.missionId === mId || t.activityType === mId));
 
       if (planningInPeriod.length === 0 && tsInPeriod.length === 0) return null;
 

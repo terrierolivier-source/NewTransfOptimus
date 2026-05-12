@@ -186,6 +186,7 @@ export interface TimesheetEntry {
   percentage: number;
   status: TimesheetStatus;
   comment?: string;
+  activityType?: 'CONGES' | 'FORMATION' | 'INTERMISSION';
   updatedAt?: string;
   createdAt?: string;
 }

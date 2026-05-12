@@ -180,21 +180,17 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
       return;
     }
 
-    // Check if category/mission exists in missions table if it's not a known special label
-    const isSpecialCategory = CATEGORIES.some(c => c.id === entry.missionId);
-    if (isSpecialCategory) {
-      const missionExists = state.missions.some(m => m.id === entry.missionId);
-      if (!missionExists) {
-        alert(`L'activité "${entry.missionId}" nécessite une mission interne existante dans la base pour être enregistrée.`);
-        return;
-      }
-    }
+    // Check if category/mission is a special category
+    const category = CATEGORIES.find(c => c.id === entry.missionId);
+    const missionId = category ? null : entry.missionId;
+    const activityType = category ? (category.id as any) : null;
 
     // Find existing timesheet to avoid duplicates
     // Since state is deduplicated on load, find() is safe.
     const existing = state.timesheets.find(t => 
       t.collaboratorId === selectedUserId && 
-      t.missionId === entry.missionId && 
+      t.missionId === missionId && 
+      t.activityType === activityType &&
       t.weekStart === entry.weekStart && 
       t.dayIndex === entry.dayIndex
     );
@@ -204,7 +200,8 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
         userId: selectedUserId, 
         collaboratorId: selectedUserId,
         weekStart: entry.weekStart, 
-        missionId: entry.missionId, 
+        missionId, 
+        activityType,
         dayIndex: entry.dayIndex, 
         percentage: entry.percentage, 
         comment: existing?.comment || '', 
@@ -243,22 +240,17 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
       return;
     }
 
-    const isSpecialCategory = CATEGORIES.some(c => c.id === validatingEntry.missionId);
-    if (isSpecialCategory) {
-      const missionExists = state.missions.some(m => m.id === validatingEntry.missionId);
-      if (!missionExists) {
-        alert(`L'activité "${validatingEntry.missionId}" nécessite une mission interne existante dans la base pour être enregistrée.`);
-        setValidatingEntry(null);
-        return;
-      }
-    }
+    const category = CATEGORIES.find(c => c.id === validatingEntry.missionId);
+    const missionId = category ? null : (validatingEntry.missionId || null);
+    const activityType = category ? (category.id as any) : (validatingEntry.activityType || null);
 
     const numVal = Math.min(100, Math.max(0, validationPercentage));
     
     // Find existing timesheet to avoid duplicates
     const existing = state.timesheets.find(t => 
       t.collaboratorId === selectedUserId && 
-      t.missionId === validatingEntry.missionId && 
+      t.missionId === missionId && 
+      t.activityType === activityType &&
       t.weekStart === validatingEntry.weekStart && 
       t.dayIndex === validatingEntry.dayIndex
     );
@@ -268,7 +260,8 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
       userId: selectedUserId, 
       collaboratorId: selectedUserId,
       weekStart: validatingEntry.weekStart, 
-      missionId: validatingEntry.missionId, 
+      missionId, 
+      activityType,
       dayIndex: validatingEntry.dayIndex, 
       percentage: numVal, 
       comment: validationComment, 
@@ -345,20 +338,15 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
       return;
     }
     
-    const isSpecialCategory = CATEGORIES.some(c => c.id === typeId);
-    if (isSpecialCategory) {
-      const missionExists = state.missions.some(m => m.id === typeId);
-      if (!missionExists) {
-        alert(`L'activité "${typeId}" nécessite une mission interne existante dans la base pour être enregistrée.`);
-        setActiveMenuDay(null);
-        return;
-      }
-    }
+    const category = CATEGORIES.find(c => c.id === typeId);
+    const missionId = category ? null : typeId;
+    const activityType = category ? (category.id as any) : null;
 
     // Find existing to avoid duplicates
     const existing = state.timesheets.find(t => 
       t.collaboratorId === selectedUserId && 
-      t.missionId === typeId && 
+      t.missionId === missionId && 
+      t.activityType === activityType &&
       t.weekStart === weekKey && 
       t.dayIndex === dayIndex
     );
@@ -368,9 +356,10 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
       userId: selectedUserId, 
       collaboratorId: selectedUserId,
       weekStart: weekKey, 
-      missionId: typeId, 
+      missionId, 
+      activityType,
       dayIndex: dayIndex, 
-      percentage: isSpecialCategory ? 100 : 0,
+      percentage: category ? 100 : 0,
       status: TimesheetStatus.VALIDE,
       comment: existing?.comment || '',
       updatedAt: new Date().toISOString()
@@ -405,7 +394,7 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
   const modalInfo = useMemo(() => {
     if (!validatingEntry) return null;
     const mission = state.missions.find(m => m.id === validatingEntry.missionId);
-    const category = CATEGORIES.find(c => c.id === validatingEntry.missionId);
+    const category = CATEGORIES.find(c => c.id === (validatingEntry.activityType || validatingEntry.missionId));
     return { mission, category };
   }, [validatingEntry, state.missions]);
 
@@ -508,9 +497,9 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
                         ) : (
                           <>
                             {dayEntries.map(entry => {
-                              const mission = state.missions.find(m => m.id === entry.missionId);
-                              const isCategory = !mission;
-                              const category = CATEGORIES.find(c => c.id === entry.missionId);
+                              const mission = entry.missionId ? state.missions.find(m => m.id === entry.missionId) : null;
+                              const isCategory = !!entry.activityType || !mission;
+                              const category = CATEGORIES.find(c => c.id === (entry.activityType || entry.missionId));
                               let style = entry.isActual ? APP_COLORS.ACTUAL : APP_COLORS.FORECAST;
                               if (isCategory) style = category?.color || APP_COLORS.INTERMISSION;
                               

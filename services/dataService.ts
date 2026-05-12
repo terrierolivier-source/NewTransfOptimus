@@ -207,7 +207,8 @@ const mapTimesheetToSupabase = (t: TimesheetEntry) => {
     // Force user_id to null because public.users is no longer the source for metadata
     user_id: null,
     collaborator_id: nullableUuid(t.collaboratorId || t.userId), // Fallback to userId if collaboratorId is missing in state
-    mission_id: t.missionId, // mission_id is TEXT in Supabase according to user, but might have FK constraints
+    mission_id: t.activityType ? null : t.missionId, // If it's a special activity, mission_id must be null
+    activity_type: t.activityType || null,
     week_start: t.weekStart,
     day_index: t.dayIndex,
     percentage: t.percentage,
@@ -238,6 +239,7 @@ const mapSupabaseToTimesheet = (t: any): TimesheetEntry => ({
   percentage: t.percentage,
   status: t.status,
   comment: t.comment,
+  activityType: t.activity_type,
   updatedAt: t.updated_at,
   createdAt: t.created_at
 });
@@ -387,7 +389,8 @@ export const loadTimesheetsFromCloud = async (): Promise<TimesheetEntry[]> => {
     // Deduplicate: keep only the most recent one for each business key
     const dedupMap = new Map<string, TimesheetEntry>();
     rawEntries.forEach(entry => {
-      const key = `${entry.collaboratorId}|${entry.missionId}|${entry.weekStart}|${entry.dayIndex}`;
+      // Business key is collaborator + mission + activity + week + day
+      const key = `${entry.collaboratorId}|${entry.missionId || 'null'}|${entry.activityType || 'null'}|${entry.weekStart}|${entry.dayIndex}`;
       // Since we ordered by updated_at DESC, the first one we see is the most recent
       if (!dedupMap.has(key)) {
         dedupMap.set(key, entry);
