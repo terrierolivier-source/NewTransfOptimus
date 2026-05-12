@@ -14,7 +14,8 @@ import {
   endOfWeek,
   parseISO,
   endOfMonth,
-  isValid
+  isValid,
+  isSameDay
 } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { 
@@ -137,12 +138,18 @@ const Availability: React.FC<AvailabilityProps> = ({ state, updateState }) => {
     const userPlanning = state.planning.filter(p => p.userId === user.id);
     const userTimesheets = state.timesheets.filter(t => t.userId === user.id);
     
-    const businessDays = getBusinessDays(period.start, period.end, state.holidays, user.country);
+    const businessDays = getBusinessDays(period.start, period.end, [], user.country);
     if (businessDays.length === 0) return 0;
 
     let totalOccupancyAcrossPeriod = 0;
 
     businessDays.forEach(day => {
+      const isHoliday = state.holidays.some(h => h.country === user.country && isSameDay(new Date(h.date), day));
+      if (isHoliday) {
+        totalOccupancyAcrossPeriod += 100;
+        return;
+      }
+
       const monday = format(startOfWeek(day, { weekStartsOn: 1 }), 'yyyy-MM-dd');
       const dayIdx = (day.getDay() + 6) % 7;
 
