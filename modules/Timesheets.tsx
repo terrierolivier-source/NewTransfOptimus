@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { AppState, TimesheetEntry, TimesheetStatus, MissionStatus, Role } from '../types';
 import { getMonday } from '../utils';
-import { syncTimesheetsToCloud, loadTimesheetsFromCloud, deleteTimesheetFromCloud } from '../services/dataService';
+import { syncTimesheetsToCloud, loadTimesheetsFromCloud, deleteTimesheetFromCloud, isValidUuid } from '../services/dataService';
 import { addWeeks, addDays, format, isSameDay, parseISO, isWithinInterval, getMonth } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
@@ -173,6 +173,13 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
     e.stopPropagation();
     const weekData = getWeekData(parseISO(entry.weekStart));
     if (!canEdit || weekData.isDayHoliday(weekData.weekDays[entry.dayIndex])) return;
+
+    if (!isValidUuid(selectedUserId)) {
+      alert("Erreur : l'identifiant du collaborateur est invalide. Veuillez recharger la page ou vérifier l'import des collaborateurs.");
+      setSaveStatus('error');
+      return;
+    }
+
     const newEntry: TimesheetEntry = { 
         id: crypto.randomUUID(), 
         userId: selectedUserId, 
@@ -195,15 +202,21 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
       await syncTimesheetsToCloud([newEntry]);
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus('idle'), 2000);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Quick validate failed", err);
       setSaveStatus('error');
-      // Optionally revert state? User didn't ask for it, but it would be cleaner.
     }
   };
 
   const handleConfirmValidation = async () => {
     if (!validatingEntry) return;
+
+    if (!isValidUuid(selectedUserId)) {
+      alert("Erreur : l'identifiant du collaborateur est invalide.");
+      setSaveStatus('error');
+      return;
+    }
+
     const numVal = Math.min(100, Math.max(0, validationPercentage));
     let newTimesheets = [...state.timesheets];
     let entryToSync: TimesheetEntry;
@@ -249,9 +262,14 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
     try {
       setSaveStatus('saving');
       if (entry.isActual) {
+        if (isValidUuid(entry.id)) {
+          await deleteTimesheetFromCloud(entry.id);
+        }
         updateState({ timesheets: state.timesheets.filter(t => t.id !== entry.id) });
-        await deleteTimesheetFromCloud(entry.id);
       } else {
+        if (!isValidUuid(selectedUserId)) {
+          throw new Error("UUID Collaborateur invalide");
+        }
         const cancelEntry: TimesheetEntry = { 
           id: crypto.randomUUID(), 
           userId: selectedUserId, 
@@ -276,6 +294,12 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
   const handleAddEntry = async (weekKey: string, dayIndex: number, typeId: string) => {
     const weekData = getWeekData(parseISO(weekKey));
     if (!canEdit || weekData.isDayHoliday(weekData.weekDays[dayIndex])) return;
+
+    if (!isValidUuid(selectedUserId)) {
+      alert("Erreur : Impossible d'ajouter une saisie pour un collaborateur sans identifiant UUID valide.");
+      setSaveStatus('error');
+      return;
+    }
     
     const isInternal = CATEGORIES.some(c => c.id === typeId);
 
@@ -303,9 +327,12 @@ const Timesheets: React.FC<TimesheetsProps> = ({ state, updateState, setSaveStat
       setValidatingEntry({ ...newEntry, isActual: true });
       setValidationPercentage(isInternal ? 100 : 0);
       setValidationComment('');
-    } catch (err) {
+    } catch (err: any) {
       console.error("Add entry failed", err);
       setSaveStatus('error');
+      if (isInternal) {
+        alert("Echec de la sauvegarde. Conseil : Si cette erreur persiste pour les 'Congés/Formation', il se peut que votre base de données restreigne ces champs (FK violation).");
+      }
     }
   };
 

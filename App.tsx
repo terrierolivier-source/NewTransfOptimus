@@ -159,9 +159,9 @@ const App: React.FC = () => {
           
           localStorage.removeItem('optimus_pending_sync');
           setPendingChanges(0); 
-          setSaveStatus('saved');
+          setSaveStatus(prev => (prev === 'saving' ? 'saved' : prev));
           
-          setTimeout(() => setSaveStatus(prev => prev === 'saved' ? 'idle' : prev), 2000);
+          setTimeout(() => setSaveStatus(prev => (prev === 'saved' ? 'idle' : prev)), 2000);
         } catch (err) {
           console.error("[Sync] Auto-save failed", err);
           setSaveStatus('error');

@@ -207,7 +207,7 @@ const mapTimesheetToSupabase = (t: TimesheetEntry) => {
     // Force user_id to null because public.users is no longer the source for metadata
     user_id: null,
     collaborator_id: nullableUuid(t.collaboratorId || t.userId), // Fallback to userId if collaboratorId is missing in state
-    mission_id: t.missionId, // mission_id is TEXT in Supabase, DO NOT use nullableUuid()
+    mission_id: t.missionId, // mission_id is TEXT in Supabase according to user, but might have FK constraints
     week_start: t.weekStart,
     day_index: t.dayIndex,
     percentage: t.percentage,
@@ -219,6 +219,10 @@ const mapTimesheetToSupabase = (t: TimesheetEntry) => {
   const validId = nullableUuid(t.id);
   if (validId) {
     payload.id = validId;
+  } else {
+    // If id is not a valid UUID, we don't send it to let Supabase generate one or we could generate it here
+    // but the frontend should ideally have a UUID ready.
+    console.warn(`mapTimesheetToSupabase: entry id "${t.id}" is not a valid UUID. It will be sent without id to Supabase.`);
   }
 
   return payload;
@@ -388,9 +392,19 @@ export const syncTimesheetsToCloud = async (entries: TimesheetEntry[]) => {
       if (error) {
         console.error('Supabase Timesheet sync error:', {
           error,
-          chunk,
-          originalEntries: entries.slice(i, i + CHUNK_SIZE)
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          chunk
         });
+        
+        // Handle Foreign Key violation for mission_id
+        if (error.code === '23503' && entries.some(e => ['CONGES', 'FORMATION', 'INTERMISSION'].includes(e.missionId))) {
+          const detailMsg = "Erreur de contrainte : mission_id doit correspondre à une mission existante. Les catégories spéciales (Congés, etc.) ne peuvent pas être enregistrées car elles ne sont pas dans la table missions.";
+          console.error(detailMsg);
+          throw new Error(detailMsg);
+        }
+
         throw error;
       }
     }
@@ -465,9 +479,11 @@ export const deleteTimesheetFromCloud = async (id: string) => {
     const { error } = await supabase.from('timesheets').delete().eq('id', id);
     if (error) {
       console.error('Error deleting timesheet from Supabase:', error);
+      throw error;
     }
   } catch (e) {
     console.error('Exception deleting timesheet from Supabase:', e);
+    throw e;
   }
 };
 
