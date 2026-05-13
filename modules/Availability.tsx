@@ -7,6 +7,7 @@ import {
   startOfDay,
   endOfDay,
   eachDayOfInterval,
+  isBefore,
   addMonths,
   addWeeks,
   addDays,
@@ -37,6 +38,7 @@ import {
   MessageSquare, 
   Target, 
   CalendarClock, 
+  BarChart3,
   ChevronDown, 
   Check,
   Filter,
@@ -46,7 +48,7 @@ import {
   GraduationCap,
   Coffee
 } from 'lucide-react';
-import { getBusinessDays, isWorkingDay, getDedupedTimesheets } from '../utils';
+import { getBusinessDays, isWorkingDay, getDedupedTimesheets, getFiscalYear } from '../utils';
 import { syncPlanningToCloud } from '../services/dataService';
 
 interface AvailabilityProps {
@@ -54,7 +56,7 @@ interface AvailabilityProps {
   updateState: (newState: Partial<AppState>) => void;
 }
 
-type TimeScale = 'day' | 'week' | 'month' | 'quarter';
+type TimeScale = 'day' | 'week' | 'month' | 'quarter' | 'ytd';
 
 const SENTIMENTS = ['🤩', '😊', '😐', '😟', '😡'];
 const WEATHERS = [
@@ -131,6 +133,13 @@ const Availability: React.FC<AvailabilityProps> = ({ state, updateState }) => {
         const start = getFiscalQuarterStart(currentDate);
         return { start, end: endOfMonth(addMonths(start, 2)) };
       }
+      case 'ytd': {
+        const fy = getFiscalYear(currentDate);
+        const fyYear = parseInt(fy.replace('FY', ''));
+        const start = startOfDay(new Date(fyYear, 1, 1));
+        const end = endOfDay(currentDate);
+        return { start, end };
+      }
       default: return { start: startOfMonth(currentDate), end: endOfMonth(currentDate) };
     }
   }, [currentDate, timeScale]);
@@ -140,6 +149,7 @@ const Availability: React.FC<AvailabilityProps> = ({ state, updateState }) => {
       case 'day': setCurrentDate(d => addDays(d, direction)); break;
       case 'week': setCurrentDate(d => addWeeks(d, direction)); break;
       case 'quarter': setCurrentDate(d => addMonths(d, direction * 3)); break;
+      case 'ytd': setCurrentDate(d => addDays(d, direction)); break;
       default: setCurrentDate(d => addMonths(d, direction));
     }
   };
@@ -161,23 +171,35 @@ const Availability: React.FC<AvailabilityProps> = ({ state, updateState }) => {
     businessDays.forEach(day => {
       const monday = format(startOfWeek(day, { weekStartsOn: 1 }), 'yyyy-MM-dd');
       const dayIdx = (day.getDay() + 6) % 7;
-
-      const missionIds = Array.from(new Set([
-        ...userPlanning.filter(p => p.weekStart === monday).map(p => p.missionId),
-        ...userTimesheets.filter(t => t.weekStart === monday && t.dayIndex === dayIdx).map(t => t.missionId || t.activityType)
-      ]));
+      const today = startOfToday();
 
       let dailySum = 0;
-      missionIds.forEach(mId => {
-        if (!mId || mId === 'INTERMISSION') return;
-        const real = userTimesheets.find(t => t.weekStart === monday && t.dayIndex === dayIdx && (t.missionId === mId || t.activityType === mId))?.percentage;
-        if (real !== undefined) {
-          dailySum += real;
+      
+      // If it's today or in the past, prioritize Validated Timesheets
+      if (!isBefore(today, day)) {
+        const dayTimesheets = userTimesheets.filter(t => t.weekStart === monday && t.dayIndex === dayIdx && t.status === TimesheetStatus.VALIDE);
+        if (dayTimesheets.length > 0) {
+          // Priority 1: Real data (Sum of all active missions/activities, excluding Intermission)
+          dailySum = dayTimesheets.reduce((acc, t) => {
+            if (t.missionId === 'INTERMISSION' || t.activityType === 'INTERMISSION') return acc;
+            return acc + (t.percentage || 0);
+          }, 0);
         } else {
-          const planned = userPlanning.find(p => p.weekStart === monday && p.missionId === mId)?.percentage;
-          dailySum += (planned || 0);
+          // Priority 2: Fallback to Planning if no validated timesheets for this day
+          const dayPlanning = userPlanning.filter(p => p.weekStart === monday);
+          dailySum = dayPlanning.reduce((acc, p) => {
+            if (p.missionId === 'INTERMISSION') return acc;
+            return acc + (p.percentage || 0);
+          }, 0);
         }
-      });
+      } else {
+        // Future: Always use Planning
+        const dayPlanning = userPlanning.filter(p => p.weekStart === monday);
+        dailySum = dayPlanning.reduce((acc, p) => {
+          if (p.missionId === 'INTERMISSION') return acc;
+          return acc + (p.percentage || 0);
+        }, 0);
+      }
       
       totalOccupancyAcrossPeriod += Math.min(100, dailySum);
     });
@@ -253,9 +275,40 @@ const Availability: React.FC<AvailabilityProps> = ({ state, updateState }) => {
         interventionEndDate = staffingRow ? parseISO(staffingRow.endDate) : parseISO(mission.endDate);
       }
 
-      const avgOccupancy = tsInPeriod.length > 0 
-        ? Math.round(tsInPeriod.reduce((acc, t) => acc + t.percentage, 0) / tsInPeriod.length)
-        : Math.round(planningInPeriod.reduce((acc, p) => acc + p.percentage, 0) / (planningInPeriod.length || 1)) || 0;
+      const collab = state.collaborators.find(c => c.id === userId);
+      const businessDaysInPeriodForStaffing = getBusinessDays(period.start, period.end, state.holidays, collab?.country || 'Global'); 
+
+      let totalStaffingOccupancy = 0;
+      let workingDaysCount = businessDaysInPeriodForStaffing.length;
+
+      if (workingDaysCount > 0) {
+        businessDaysInPeriodForStaffing.forEach(day => {
+          const monday = format(startOfWeek(day, { weekStartsOn: 1 }), 'yyyy-MM-dd');
+          const dayIdx = (day.getDay() + 6) % 7;
+          const today = startOfToday();
+
+          let dayOcc = 0;
+          if (!isBefore(today, day)) {
+            const dayTs = userTimesheets.find(t => t.weekStart === monday && t.dayIndex === dayIdx && t.status === TimesheetStatus.VALIDE && (t.missionId === mId || t.activityType === mId));
+            if (dayTs) {
+              dayOcc = dayTs.percentage;
+            } else {
+              // Only fallback to planning if there are NO validated timesheets at all for this day for any mission
+              const anyTsOnDay = userTimesheets.some(t => t.weekStart === monday && t.dayIndex === dayIdx && t.status === TimesheetStatus.VALIDE);
+              if (!anyTsOnDay) {
+                const dayPlan = userPlanning.find(p => p.weekStart === monday && p.missionId === mId);
+                dayOcc = dayPlan?.percentage || 0;
+              }
+            }
+          } else {
+            const dayPlan = userPlanning.find(p => p.weekStart === monday && p.missionId === mId);
+            dayOcc = dayPlan?.percentage || 0;
+          }
+          totalStaffingOccupancy += dayOcc;
+        });
+      }
+
+      const avgOccupancy = workingDaysCount > 0 ? Math.round(totalStaffingOccupancy / workingDaysCount) : 0;
 
       const firstEntry = planningInPeriod[0] || userPlanning.find(p => p.missionId === mId);
       
@@ -303,15 +356,15 @@ const Availability: React.FC<AvailabilityProps> = ({ state, updateState }) => {
         <div className="bg-white p-4 xl:p-2 rounded-xl border shadow-sm flex flex-col xl:flex-row items-center justify-between gap-4">
           <div className="flex flex-col md:flex-row items-center gap-3 w-full xl:w-auto">
             <div className="flex bg-gray-100 p-0.5 rounded-lg overflow-x-auto w-full md:w-auto no-scrollbar shrink-0">
-              {(['day', 'week', 'month', 'quarter'] as TimeScale[]).map(s => (
-                <button key={s} onClick={() => setTimeScale(s)} className={`flex-1 md:flex-none flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-[9px] font-bold transition-all shrink-0 ${timeScale === s ? 'bg-white shadow-sm text-navy' : 'text-gray-500 hover:text-navy'}`}>{s === 'day' ? <Clock size={12} /> : s === 'week' ? <CalendarDays size={12} /> : s === 'month' ? <Calendar size={12} /> : <CalendarRange size={12} />} {s.toUpperCase()}</button>
+              {(['day', 'week', 'month', 'quarter', 'ytd'] as TimeScale[]).map(s => (
+                <button key={s} onClick={() => setTimeScale(s)} className={`flex-1 md:flex-none flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-[9px] font-bold transition-all shrink-0 ${timeScale === s ? 'bg-white shadow-sm text-navy' : 'text-gray-500 hover:text-navy'}`}>{s === 'day' ? <Clock size={12} /> : s === 'week' ? <CalendarDays size={12} /> : s === 'month' ? <Calendar size={12} /> : s === 'quarter' ? <CalendarRange size={12} /> : <BarChart3 size={12} />} {s.toUpperCase()}</button>
               ))}
             </div>
             <div className="flex items-center justify-between w-full md:w-auto gap-3">
               <div className="flex items-center gap-1 bg-navy/5 p-0.5 rounded-xl border border-navy/10 shrink-0">
                 <button onClick={() => handleNavigate(-1)} className="p-1 hover:bg-white rounded-lg transition-all text-navy"><ChevronLeft size={14} /></button>
                 <div className="font-black text-navy text-[9px] uppercase px-1 min-w-[85px] text-center tracking-tighter">
-                  {timeScale === 'day' ? format(currentDate, 'dd/MM/yy') : timeScale === 'week' ? `S${format(currentDate, 'w')} ${format(currentDate, 'yyyy')}` : timeScale === 'quarter' ? formatFiscalQuarter(currentDate) : format(currentDate, 'MMMM yyyy', { locale: fr })}
+                  {timeScale === 'day' ? format(currentDate, 'dd/MM/yy') : timeScale === 'week' ? `S${format(currentDate, 'w')} ${format(currentDate, 'yyyy')}` : timeScale === 'quarter' ? formatFiscalQuarter(currentDate) : timeScale === 'ytd' ? `YTD ${getFiscalYear(currentDate)}` : format(currentDate, 'MMMM yyyy', { locale: fr })}
                 </div>
                 <button onClick={() => handleNavigate(1)} className="p-1 hover:bg-white rounded-lg transition-all text-navy"><ChevronRight size={14} /></button>
               </div>

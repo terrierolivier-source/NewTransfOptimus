@@ -79,7 +79,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
         const collabId = row.collaboratorId || row.userId;
         const collab = collaborators.find(c => c.id === collabId);
         const cjm = row.cjm || collab?.cjm || 500;
-        const mCollabTS = timesheets.filter(t => t.missionId === m.id && (t.collaboratorId === collabId || t.userId === collabId) && t.status === 'Validé');
+        const mCollabTS = timesheets.filter(t => t.missionId === m.id && (t.collaboratorId === collabId || t.userId === collabId) && t.status === TimesheetStatus.VALIDE);
         
         // RÉEL (Basé sur les timesheets validées)
         mCollabTS.forEach(ts => {
@@ -326,10 +326,11 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
       bDays.forEach(day => {
         const monday = format(startOfWeek(day, { weekStartsOn: 1 }), 'yyyy-MM-dd');
         const dayIdx = (day.getDay() + 6) % 7;
-        const dayActuals = userTimesheets.filter(t => t.weekStart === monday && t.dayIndex === dayIdx && t.missionId !== 'INTERMISSION' && t.activityType !== 'INTERMISSION');
+        const dayActuals = userTimesheets.filter(t => t.weekStart === monday && t.dayIndex === dayIdx && t.status === TimesheetStatus.VALIDE && t.missionId !== 'INTERMISSION' && t.activityType !== 'INTERMISSION');
         if (dayActuals.length > 0) {
           userTotalPercentage += Math.min(100, dayActuals.reduce((acc, t) => acc + t.percentage, 0));
         } else {
+          // If no validated timesheets for this day (even if past), fallback to planning
           const weekPlans = userPlanning.filter(p => p.weekStart === monday && p.missionId !== 'INTERMISSION');
           userTotalPercentage += Math.min(100, weekPlans.reduce((acc, p) => acc + p.percentage, 0));
         }
@@ -426,9 +427,15 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
             bDays.forEach(day => {
               const monday = format(startOfWeek(day, { weekStartsOn: 1 }), 'yyyy-MM-dd');
               const dayIdx = (day.getDay() + 6) % 7;
-              if (isBefore(day, today)) {
-                 const dayActuals = timesheets.filter(t => (t.collaboratorId === collab.id || t.userId === collab.id) && t.weekStart === monday && t.dayIndex === dayIdx && t.status === 'Validé' && t.missionId !== 'INTERMISSION' && t.activityType !== 'INTERMISSION');
-                 totalLoad += Math.min(100, dayActuals.reduce((acc, t) => acc + t.percentage, 0));
+              
+              if (!isBefore(today, day)) {
+                 const dayActuals = timesheets.filter(t => (t.collaboratorId === collab.id || t.userId === collab.id) && t.weekStart === monday && t.dayIndex === dayIdx && t.status === TimesheetStatus.VALIDE && t.missionId !== 'INTERMISSION' && t.activityType !== 'INTERMISSION');
+                 if (dayActuals.length > 0) {
+                   totalLoad += Math.min(100, dayActuals.reduce((acc, t) => acc + t.percentage, 0));
+                 } else {
+                   const dayPlans = planning.filter(p => (p.collaboratorId === collab.id || p.userId === collab.id) && p.weekStart === monday && p.missionId !== 'INTERMISSION');
+                   totalLoad += Math.min(100, dayPlans.reduce((acc, p) => acc + p.percentage, 0));
+                 }
               } else {
                  const dayPlans = planning.filter(p => (p.collaboratorId === collab.id || p.userId === collab.id) && p.weekStart === monday && p.missionId !== 'INTERMISSION');
                  totalLoad += Math.min(100, dayPlans.reduce((acc, p) => acc + p.percentage, 0));
