@@ -483,29 +483,66 @@ export const fetchExistingTimesheetByBusinessKey = async (entry: Partial<Timeshe
 
 export const syncTimesheetsToCloud = async (entries: TimesheetEntry[]): Promise<TimesheetEntry[]> => {
   if (entries.length === 0) return [];
-  const data = entries.map(e => mapTimesheetToSupabase(e));
+  
   const savedEntries: TimesheetEntry[] = [];
   try {
+    const data = entries.map(e => mapTimesheetToSupabase(e));
     const CHUNK_SIZE = 100;
+    
     for (let i = 0; i < data.length; i += CHUNK_SIZE) {
       const chunk = data.slice(i, i + CHUNK_SIZE);
+      
       const { data: returnedData, error } = await supabase
         .from('timesheets')
         .upsert(chunk)
         .select();
 
       if (error) {
-        console.error('Supabase Timesheet sync error details:', {
-          code: error.code,
-          message: error.message,
-          details: error.details,
-          hint: error.hint,
-          payload: chunk
-        });
-        throw error;
-      }
-      
-      if (returnedData) {
+        if (error.code === '23505') {
+          console.warn('Duplicate key error (23505) detected in chunk. Attempting individual recovery to ensure data integrity...');
+          
+          for (const entryPayload of chunk) {
+            try {
+              // Individual upsert attempt
+              const { data: singleData, error: singleError } = await supabase
+                .from('timesheets')
+                .upsert(entryPayload)
+                .select();
+                
+              if (singleError && singleError.code === '23505') {
+                 // RECOVERY: Business key conflict detected. 
+                 // We MUST find the existing record's UUID to perform a targeted update.
+                 const existing = await fetchExistingTimesheetByBusinessKey(mapSupabaseToTimesheet(entryPayload));
+                 
+                 if (existing) {
+                   console.log(`[Sync Recovery] Conflict resolved for ${existing.id}. Re-using ID.`);
+                   const recoveredPayload = { ...entryPayload, id: existing.id };
+                   const { data: finalData, error: finalError } = await supabase
+                     .from('timesheets')
+                     .upsert(recoveredPayload)
+                     .select();
+                     
+                   if (finalError) throw finalError;
+                   if (finalData) finalData.forEach(t => savedEntries.push(mapSupabaseToTimesheet(t)));
+                 } else {
+                   // This should theoretically not happen if the index triggered 23505
+                   throw singleError;
+                 }
+              } else if (singleError) {
+                throw singleError;
+              } else if (singleData) {
+                singleData.forEach(t => savedEntries.push(mapSupabaseToTimesheet(t)));
+              }
+            } catch (innerE) {
+              console.error('Individual recovery failed for specific timesheet entry:', innerE);
+              throw innerE;
+            }
+          }
+        } else {
+          console.error('Supabase Timesheet sync error:', error);
+          throw error;
+        }
+      } else if (returnedData) {
         returnedData.forEach(t => savedEntries.push(mapSupabaseToTimesheet(t)));
       }
     }

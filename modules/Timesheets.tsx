@@ -346,8 +346,30 @@ const Timesheets: React.FC<TimesheetsProps> = ({
           throw new Error("UUID Collaborateur invalide");
         }
         const { missionId, activityType } = normalizeTimesheetEntry(entry);
+
+        // Check for existing ID to avoid duplicate constraint violation
+        let existingInState = state.timesheets.find(t => 
+          t.collaboratorId === selectedUserId && 
+          (t.missionId || null) === missionId && 
+          (t.activityType || null) === activityType && 
+          t.weekStart === entry.weekStart && 
+          t.dayIndex === entry.dayIndex
+        );
+        
+        let existingId = existingInState?.id;
+        if (!existingId) {
+          const dbEntry = await fetchExistingTimesheetByBusinessKey({
+            collaboratorId: selectedUserId,
+            missionId,
+            activityType,
+            weekStart: entry.weekStart,
+            dayIndex: entry.dayIndex
+          });
+          if (dbEntry) existingId = dbEntry.id;
+        }
+
         const cancelEntry: TimesheetEntry = { 
-          id: crypto.randomUUID(), 
+          id: existingId || crypto.randomUUID(), 
           userId: selectedUserId, 
           collaboratorId: selectedUserId,
           weekStart: entry.weekStart, 
