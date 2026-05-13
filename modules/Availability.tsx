@@ -251,9 +251,7 @@ const Availability: React.FC<AvailabilityProps> = ({ state, updateState }) => {
 
     return missionIds.filter(Boolean).map(mId => {
       const mission = state.missions.find(m => m.id === mId);
-      const category = CATEGORIES.find(c => c.id === mId);
-
-      if (!mission && !category) return null;
+      if (!mission) return null;
 
       const planningInPeriod = userPlanning.filter(p => {
         const pStart = parseISO(p.weekStart);
@@ -315,7 +313,6 @@ const Availability: React.FC<AvailabilityProps> = ({ state, updateState }) => {
       return { 
         id: mId, 
         mission, 
-        category,
         avgOccupancy, 
         sentiment: firstEntry?.sentiment || '😐', 
         weather: firstEntry?.weather || 'sun', 
@@ -482,39 +479,32 @@ const Availability: React.FC<AvailabilityProps> = ({ state, updateState }) => {
                 </div>
                 {staffings.map((staff) => {
                   if (!staff) return null;
-                  const isMission = !!staff.mission;
-                  const cardBg = isMission ? 'bg-navy' : staff.category?.color || 'bg-slate-600';
-                  const textColor = isMission ? 'text-white' : staff.category?.textColor || 'text-white';
-                  const label = isMission ? staff.mission?.clientName : staff.category?.label;
-                  const subLabel = isMission ? staff.mission?.name : 'Activité interne';
-                  const Icon = isMission ? null : staff.category?.icon;
+                  const label = staff.mission?.clientName;
+                  const subLabel = staff.mission?.name;
 
                   return (
                     <div 
                       key={staff.id} 
-                      onClick={() => isMission ? openFeedbackModal(user.id, staff.id) : null} 
-                      className={`relative w-64 h-28 ${cardBg} ${textColor} rounded-lg shadow-md p-3 flex flex-col justify-between shrink-0 transform hover:scale-[1.03] transition-all border border-white/10 ${isMission ? 'cursor-pointer' : 'cursor-default'}`}
+                      onClick={() => openFeedbackModal(user.id, staff.id)} 
+                      className="relative w-64 h-28 bg-navy text-white rounded-lg shadow-md p-3 flex flex-col justify-between shrink-0 transform hover:scale-[1.03] transition-all border border-white/10 cursor-pointer"
                     >
                       <div className="flex justify-between items-start gap-3">
                         <div className="flex items-center gap-2 flex-1 min-w-0">
-                          {Icon && <Icon size={14} className="shrink-0 opacity-70" />}
                           <span className="text-[8px] font-black text-yellow-accent uppercase tracking-widest truncate leading-tight">{label}</span>
                         </div>
-                        {isMission && (
-                          <div className="flex items-center gap-1.5">
-                            {(() => {
-                              const wConfig = WEATHERS.find(w => w.id === staff.weather);
-                              const WIcon = wConfig?.icon || Sun;
-                              return <WIcon size={14} className={wConfig?.color || 'text-yellow-400'} />;
-                            })()}
-                            <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center text-xs border border-white/5">{staff.sentiment}</div>
-                          </div>
-                        )}
+                        <div className="flex items-center gap-1.5">
+                          {(() => {
+                            const wConfig = WEATHERS.find(w => w.id === staff.weather);
+                            const WIcon = wConfig?.icon || Sun;
+                            return <WIcon size={14} className={wConfig?.color || 'text-yellow-400'} />;
+                          })()}
+                          <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center text-xs border border-white/5">{staff.sentiment}</div>
+                        </div>
                       </div>
-                      <p className={`text-[10px] font-bold leading-tight ${isMission ? 'text-white/90' : 'text-white/80'} truncate`}>{subLabel}</p>
+                      <p className="text-[10px] font-bold leading-tight text-white/90 truncate">{subLabel}</p>
                       <div className="flex justify-between items-end border-t border-white/10 pt-1.5 mt-auto">
                         <div className="flex flex-col">
-                          <span className="text-[7px] text-white/40 font-bold uppercase tracking-widest leading-none mb-0.5">{isMission ? 'Fin estimée' : 'Fin période'}</span>
+                          <span className="text-[7px] text-white/40 font-bold uppercase tracking-widest leading-none mb-0.5">Fin estimée</span>
                           <span className="text-[9px] font-bold leading-none">{isValid(staff.interventionEndDate) ? format(staff.interventionEndDate, 'dd MMM yyyy', { locale: fr }) : '--'}</span>
                         </div>
                         <div className="bg-white/10 text-white px-2 py-1 rounded-md font-black text-[10px] border border-white/5">{staff.avgOccupancy}%</div>
