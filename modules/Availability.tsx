@@ -148,25 +148,17 @@ const Availability: React.FC<AvailabilityProps> = ({ state, updateState }) => {
     const userPlanning = state.planning.filter(p => p.userId === user.id);
     const userTimesheets = state.timesheets.filter(t => t.userId === user.id);
     
-    const businessDays = getBusinessDays(period.start, period.end, [], user.country);
+    const businessDays = getBusinessDays(period.start, period.end, state.holidays, user.country);
     if (businessDays.length === 0) {
-      // If we are on a non-working day (e.g. looking at a Saturday), 
+      // If we are on a non-working day (e.g. looking at a Saturday or Holiday), 
       // we should not show 100% availability. Returning 100% occupancy (0 availability) 
       // for weekends/holidays is safer, or simply ignoring it.
-      // But the user wants them "ignored" in the denominator of the average. 
-      // For a single day that is not a working day, 100% occupancy (0% availability) is more accurate.
-      return isWorkingDay(period.start) ? 0 : 100;
+      return isWorkingDay(period.start, state.holidays, user.country) ? 0 : 100;
     }
 
     let totalOccupancyAcrossPeriod = 0;
 
     businessDays.forEach(day => {
-      const isHoliday = state.holidays.some(h => h.country === user.country && isSameDay(new Date(h.date), day));
-      if (isHoliday) {
-        totalOccupancyAcrossPeriod += 100;
-        return;
-      }
-
       const monday = format(startOfWeek(day, { weekStartsOn: 1 }), 'yyyy-MM-dd');
       const dayIdx = (day.getDay() + 6) % 7;
 

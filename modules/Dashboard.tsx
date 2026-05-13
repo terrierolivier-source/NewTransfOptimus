@@ -309,9 +309,9 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
       const userEffectiveStart = isAfter(joiningDate, fyStart) ? startOfDay(joiningDate) : fyStart;
       const userEffectiveEnd = isBefore(leavingDate, ytdEnd) ? endOfDay(leavingDate) : ytdEnd;
       if (isAfter(userEffectiveStart, userEffectiveEnd)) return;
-      const bDays = getBusinessDays(userEffectiveStart, userEffectiveEnd, [], collab.country);
+      const bDays = getBusinessDays(userEffectiveStart, userEffectiveEnd, holidays, collab.country);
       if (bDays.length === 0) {
-        if (!isWorkingDay(userEffectiveStart)) {
+        if (!isWorkingDay(userEffectiveStart, holidays, collab.country)) {
           globalSumOfAverages += 100;
           validUsersCount++;
         }
@@ -324,12 +324,6 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
       let userTotalPercentage = 0;
 
       bDays.forEach(day => {
-        const isHoliday = holidays.some(h => h.country === collab.country && isSameDay(new Date(h.date), day));
-        if (isHoliday) {
-          userTotalPercentage += 100;
-          return;
-        }
-
         const monday = format(startOfWeek(day, { weekStartsOn: 1 }), 'yyyy-MM-dd');
         const dayIdx = (day.getDay() + 6) % 7;
         const dayActuals = userTimesheets.filter(t => t.weekStart === monday && t.dayIndex === dayIdx && t.missionId !== 'INTERMISSION' && t.activityType !== 'INTERMISSION');
@@ -362,17 +356,8 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
         const userPlanning = planning.filter(p => (p.collaboratorId === collab.id || p.userId === collab.id) && p.weekStart === targetMonday && p.missionId !== 'INTERMISSION');
         const totalPercentage = userPlanning.reduce((acc, p) => acc + p.percentage, 0);
         
-        // If they have something planned, they aren't fully available (0% load threshold)
-        if (totalPercentage > 0) return false;
-
-        // Check if there's a holiday in that week (Mon-Fri)
-        const monDate = parseISO(targetMonday);
-        const hasHoliday = [0, 1, 2, 3, 4].some(dayIdx => {
-          const day = addDays(monDate, dayIdx);
-          return holidays.some(h => h.country === collab.country && isSameDay(new Date(h.date), day));
-        });
-
-        return !hasHoliday;
+        // On considère qu'il est disponible s'il n'est pas staffé (on ignore le jour férié dans ce test simple)
+        return totalPercentage === 0;
       });
       
       return { 
@@ -435,16 +420,10 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
         const effectiveEnd = isBefore(leavingDate, end) ? leavingDate : end;
 
         if (!isAfter(effectiveStart, effectiveEnd)) {
-          const bDays = getBusinessDays(effectiveStart, effectiveEnd, [], collab.country);
+          const bDays = getBusinessDays(effectiveStart, effectiveEnd, holidays, collab.country);
           if (bDays.length > 0) {
             totalCap += bDays.length * 100;
             bDays.forEach(day => {
-              const isHoliday = holidays.some(h => h.country === collab.country && isSameDay(new Date(h.date), day));
-              if (isHoliday) {
-                totalLoad += 100;
-                return;
-              }
-
               const monday = format(startOfWeek(day, { weekStartsOn: 1 }), 'yyyy-MM-dd');
               const dayIdx = (day.getDay() + 6) % 7;
               if (isBefore(day, today)) {

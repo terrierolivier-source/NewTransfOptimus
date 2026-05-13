@@ -22,18 +22,17 @@ export const formatDateDisplay = (date: Date | string): string => {
   return format(new Date(date), 'dd/MM/yyyy');
 };
 
-export const isWorkingDay = (date: Date): boolean => {
+export const isWorkingDay = (date: Date, holidays: Holiday[] = [], country: Country | 'Global' = 'Global'): boolean => {
   const day = date.getDay();
-  return day !== 0 && day !== 6; // 0 = Sunday, 6 = Saturday
+  if (day === 0 || day === 6) return false; // 0 = Sunday, 6 = Saturday
+  
+  const isHoliday = holidays.some(h => (country === 'Global' || h.country === country) && isSameDay(new Date(h.date), date));
+  return !isHoliday;
 };
 
-export const getBusinessDays = (start: Date, end: Date, holidays: Holiday[], country: Country): Date[] => {
+export const getBusinessDays = (start: Date, end: Date, holidays: Holiday[], country: Country | 'Global'): Date[] => {
   const days = eachDayOfInterval({ start, end });
-  return days.filter(day => {
-    if (!isWorkingDay(day)) return false;
-    const isHoliday = holidays.some(h => h.country === country && isSameDay(new Date(h.date), day));
-    return !isHoliday;
-  });
+  return days.filter(day => isWorkingDay(day, holidays, country));
 };
 
 export const generateId = () => Math.random().toString(36).substr(2, 9);
