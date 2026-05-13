@@ -357,7 +357,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
         const userPlanning = planning.filter(p => (p.collaboratorId === collab.id || p.userId === collab.id) && p.weekStart === targetMonday && p.missionId !== 'INTERMISSION');
         const totalPercentage = userPlanning.reduce((acc, p) => acc + p.percentage, 0);
         
-        // If they have something planned, they aren't fully available
+        // If they have something planned, they aren't fully available (0% load threshold)
         if (totalPercentage > 0) return false;
 
         // Check if there's a holiday in that week (Mon-Fri)
@@ -373,10 +373,14 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
       return { 
         weeks, 
         count: availableUsers.length,
-        userNames: availableUsers.map(u => `${u.firstName} ${u.lastName}`).sort()
+        dateLabel: format(targetDate, 'dd/MM'),
+        users: availableUsers.map(u => ({
+          name: `${u.firstName} ${u.lastName}`,
+          availability: 100 // Based on the 0% load threshold
+        })).sort((a, b) => a.name.localeCompare(b.name))
       };
     });
-  }, [filteredCollaboratorsForStats, planning, today]);
+  }, [filteredCollaboratorsForStats, planning, today, holidays]);
 
   const missionCounts = useMemo(() => {
     // On ne compte que les missions qui ont un impact réel sur le CA ou coût du FY sélectionné
@@ -674,17 +678,17 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
         {/* Graphique Staffing Mensuel */}
         <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex flex-col items-center min-h-[337px]">
           <h3 className={`${CARD_TITLE_CLASS} text-center w-full`}>STAFFING MENSUEL (RÉEL + PRÉV)</h3>
-          <div className="flex-1 w-full flex flex-col items-center justify-center pt-4">
-             <div className="h-44 w-full">
+          <div className="flex-1 w-full flex flex-col items-center justify-center pt-2">
+             <div className="h-52 w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={monthlyStaffingData} margin={{ left: -30, right: 10 }}>
+                  <ComposedChart data={monthlyStaffingData} margin={{ left: -30, right: 10, top: 10 }}>
                     <defs>
                       <linearGradient id="ytdGradient" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#e1b129" stopOpacity={0.6}/>
                         <stop offset="95%" stopColor="#e1b129" stopOpacity={0}/>
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f5f5f5" />
                     <XAxis 
                       dataKey="name" 
                       fontSize={8} 
@@ -695,7 +699,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
                     />
                     <YAxis 
                       domain={[0, 110]} 
-                      ticks={[25, 50, 75, 100]}
+                      ticks={[0, 25, 50, 75, 100]}
                       fontSize={8} 
                       fontWeight={800} 
                       axisLine={false} 
@@ -705,7 +709,6 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
                     <Tooltip 
                       content={({ active, payload }) => {
                         if (active && payload && payload.length) {
-                          // On prend la valeur du taux réel (rate)
                           const data = payload.find(p => p.dataKey === 'rate');
                           if (!data) return null;
                           return (
@@ -727,10 +730,18 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
                       fillOpacity={1} 
                       connectNulls={false}
                     />
-                    <ReferenceLine y={80} stroke="#cbd5e1" strokeDasharray="3 3" strokeWidth={1}>
-                       <Label value="OBJ. 80%" position="insideBottomRight" fontSize={7} fontWeight={900} fill="#94a3b8" />
-                    </ReferenceLine>
+                    
+                    {/* Accentuated Grid Lines */}
+                    {[0, 25, 50, 75, 100].map(val => (
+                      <ReferenceLine key={val} y={val} stroke="#e2e8f0" strokeWidth={1} />
+                    ))}
+
                     <Line type="monotone" dataKey="rate" stroke="#e1b129" strokeWidth={3} dot={{ fill: '#e1b129', r: 3, strokeWidth: 2 }} activeDot={{ r: 5, strokeWidth: 0 }} />
+                    
+                    {/* Darker 80% Target Line in Foreground */}
+                    <ReferenceLine y={80} stroke="#64748b" strokeDasharray="4 4" strokeWidth={1.5} isFront={true}>
+                       <Label value="OBJ. 80%" position="insideBottomRight" fontSize={7} fontWeight={900} fill="#475569" />
+                    </ReferenceLine>
                   </ComposedChart>
                 </ResponsiveContainer>
              </div>
@@ -803,15 +814,21 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
               <div className="grid grid-cols-3 gap-2">
                 {interContratHorizons.map((h, i) => (
                   <div key={i} className="text-center group/h relative">
-                    {/* Tooltip Noms Collaborateurs */}
-                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-40 bg-navy p-2 rounded-xl shadow-xl border border-white/10 hidden group-hover/h:block z-50 pointer-events-none max-h-48 overflow-y-auto">
-                       <p className="text-[8px] font-black text-yellow-accent uppercase tracking-widest mb-1.5 border-b border-white/10 pb-1">Disponibles ({h.count})</p>
-                       <div className="space-y-0.5">
-                          {h.userNames.length === 0 ? (
-                            <p className="text-[9px] text-white/40 italic">Aucun</p>
+                    {/* Tooltip Noms Collaborateurs + Date + % */}
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 bg-navy p-3 rounded-2xl shadow-2xl border border-white/10 hidden group-hover/h:block z-[70] animate-in fade-in zoom-in duration-200 pointer-events-none max-h-56 overflow-y-auto no-scrollbar">
+                       <div className="border-b border-white/10 pb-2 mb-2">
+                         <p className="text-[9px] font-black text-yellow-accent uppercase tracking-widest">Disponibles le {h.dateLabel}</p>
+                         <p className="text-[7px] font-black text-white/40 uppercase tracking-tighter">Total : {h.count} Consultants</p>
+                       </div>
+                       <div className="space-y-1.5">
+                          {h.users.length === 0 ? (
+                            <p className="text-[9px] text-white/40 italic">Aucun collaborateur disponible</p>
                           ) : (
-                            h.userNames.map((name, idx) => (
-                              <p key={idx} className="text-[9px] text-white font-medium truncate">{name}</p>
+                            h.users.map((u, idx) => (
+                              <div key={idx} className="flex justify-between items-center gap-3">
+                                <p className="text-[10px] text-white font-bold truncate">{u.name}</p>
+                                <p className="text-[10px] text-yellow-accent font-black shrink-0">{u.availability}%</p>
+                              </div>
                             ))
                           )}
                        </div>
