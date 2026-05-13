@@ -262,21 +262,26 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
   ];
 
   const portfolioWeightedMarginData = useMemo(() => {
-    // On utilise exactement le même CA que le bloc "Suivi Facturation" (77 000€ attendus)
-    const totalFYRev = totalForecastRevenue;
+    // Pour la marge, on exclut explicitement les missions non démarrées
+    const activeMissionsForMargin = missionsForSelectedFY.filter(m => m.status !== MissionStatus.NON_DEMARREE);
+
+    const totalFYRevForMargin = activeMissionsForMargin.reduce((acc, m) => {
+      const metrics = missionMetrics.find(mm => mm.mission.id === m.id);
+      return acc + (metrics?.fyRevenue || 0);
+    }, 0);
     
-    // On calcule le coût pour toutes les missions sélectionnées pour ce FY
+    // On calcule le coût uniquement pour ces missions
     let totalFYCost = 0;
-    missionsForSelectedFY.forEach(m => {
+    activeMissionsForMargin.forEach(m => {
       const metrics = missionMetrics.find(mm => mm.mission.id === m.id);
       if (metrics) {
         totalFYCost += metrics.fyProdCost;
       }
     });
     
-    const marginPercent = totalFYRev === 0 ? 0 : ((totalFYRev - totalFYCost) / totalFYRev) * 100;
-    return { totalFYRev, totalFYCost, marginPercent };
-  }, [totalForecastRevenue, missionsForSelectedFY, missionMetrics]);
+    const marginPercent = totalFYRevForMargin === 0 ? 0 : ((totalFYRevForMargin - totalFYCost) / totalFYRevForMargin) * 100;
+    return { totalFYRev: totalFYRevForMargin, totalFYCost, marginPercent };
+  }, [missionsForSelectedFY, missionMetrics]);
 
   const portfolioWeightedMargin = portfolioWeightedMarginData.marginPercent;
 
@@ -918,7 +923,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
           <h3 className={`${SECTION_TITLE_CLASS} mb-6`}>TOP 5 MISSIONS PAR CA {globalFY} (+SF)</h3>
           <div className="space-y-2.5 flex-1 flex flex-col justify-center">
             {missionMetrics
-              .filter(mm => missionsForSelectedFY.some(mfy => mfy.id === mm.mission.id))
+              .filter(mm => missionsForSelectedFY.some(mfy => mfy.id === mm.mission.id) && mm.mission.status !== MissionStatus.NON_DEMARREE)
               .sort((a, b) => b.fyRevenue - a.fyRevenue)
               .slice(0, 5)
               .map((m, i) => (
