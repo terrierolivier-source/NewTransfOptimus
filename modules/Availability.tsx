@@ -269,8 +269,20 @@ const Availability: React.FC<AvailabilityProps> = ({ state, updateState }) => {
 
       let interventionEndDate = period.end;
       if (mission) {
-        const staffingRow = mission.internalStaffing?.find(s => s.userId === userId || s.collaboratorId === userId) || mission.freelanceStaffing?.find(f => f.id === userId);
-        interventionEndDate = staffingRow ? parseISO(staffingRow.endDate) : parseISO(mission.endDate);
+        const userStaffingRows = [
+          ...(mission.internalStaffing || []),
+          ...(mission.freelanceStaffing || []),
+          ...(mission.subcontractorStaffing || [])
+        ].filter(s => s.collaboratorId === userId || (s as any).userId === userId || (s as any).id === userId);
+        
+        if (userStaffingRows.length > 0) {
+          const dates = userStaffingRows.map(s => parseISO(s.endDate)).filter(d => isValid(d));
+          if (dates.length > 0) {
+            interventionEndDate = new Date(Math.max(...dates.map(d => d.getTime())));
+          }
+        } else {
+          interventionEndDate = parseISO(mission.endDate);
+        }
       }
 
       const collab = state.collaborators.find(c => c.id === userId);
@@ -287,20 +299,20 @@ const Availability: React.FC<AvailabilityProps> = ({ state, updateState }) => {
 
           let dayOcc = 0;
           if (!isBefore(today, day)) {
-            const dayTs = userTimesheets.find(t => t.weekStart === monday && t.dayIndex === dayIdx && t.status === TimesheetStatus.VALIDE && (t.missionId === mId || t.activityType === mId));
-            if (dayTs) {
-              dayOcc = dayTs.percentage;
+            const dayTs = userTimesheets.filter(t => t.weekStart === monday && t.dayIndex === dayIdx && t.status === TimesheetStatus.VALIDE && (t.missionId === mId || t.activityType === mId));
+            if (dayTs.length > 0) {
+              dayOcc = dayTs.reduce((acc, t) => acc + t.percentage, 0);
             } else {
-              // Only fallback to planning if there are NO validated timesheets at all for this day for any mission
+              // Sum all planning entries for this mission on this week
               const anyTsOnDay = userTimesheets.some(t => t.weekStart === monday && t.dayIndex === dayIdx && t.status === TimesheetStatus.VALIDE);
               if (!anyTsOnDay) {
-                const dayPlan = userPlanning.find(p => p.weekStart === monday && p.missionId === mId);
-                dayOcc = dayPlan?.percentage || 0;
+                const dayPlans = userPlanning.filter(p => p.weekStart === monday && p.missionId === mId);
+                dayOcc = dayPlans.reduce((acc, p) => acc + (p.percentage || 0), 0);
               }
             }
           } else {
-            const dayPlan = userPlanning.find(p => p.weekStart === monday && p.missionId === mId);
-            dayOcc = dayPlan?.percentage || 0;
+            const dayPlans = userPlanning.filter(p => p.weekStart === monday && p.missionId === mId);
+            dayOcc = dayPlans.reduce((acc, p) => acc + (p.percentage || 0), 0);
           }
           totalStaffingOccupancy += dayOcc;
         });

@@ -151,16 +151,20 @@ const Timesheets: React.FC<TimesheetsProps> = ({
         if (!actualRow && plan.percentage > 0) {
           const mission = state.missions.find(m => m.id === plan.missionId);
           if (mission) {
-            const staffRow = [
+            const userStaffingRows = [
               ...(mission.internalStaffing || []),
               ...(mission.freelanceStaffing || []),
               ...(mission.subcontractorStaffing || [])
-            ].find(s => s.collaboratorId === selectedUserId || (s as any).userId === selectedUserId || (s as any).id === selectedUserId);
+            ].filter(s => s.collaboratorId === selectedUserId || (s as any).userId === selectedUserId || (s as any).id === selectedUserId);
 
-            if (staffRow) {
-              const start = parseISO(staffRow.startDate);
-              const end = parseISO(staffRow.endDate);
-              if (isWithinInterval(dayDate, { start, end })) {
+            if (userStaffingRows.length > 0) {
+              const isWithinAnyStaffing = userStaffingRows.some(s => {
+                const start = parseISO(s.startDate);
+                const end = parseISO(s.endDate);
+                return isWithinInterval(dayDate, { start, end });
+              });
+
+              if (isWithinAnyStaffing) {
                 dailyData[dayIdx].push({ 
                   id: `plan-${plan.id}-${dayIdx}`, 
                   missionId: plan.missionId, 
