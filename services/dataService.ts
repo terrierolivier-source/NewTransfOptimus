@@ -676,22 +676,58 @@ export const loadStateFromCloud = async (): Promise<Partial<AppState>> => {
       }
     } catch (e) { console.warn('Config load failed', e); }
 
-    // Missions
+    // Missions (Paginated)
     try {
-      const { data: missions } = await supabase.from('missions').select('*');
-      if (missions) results.missions = missions.map(m => mapSupabaseToMission(m));
+      let allMissionsRaw: any[] = [];
+      let from = 0;
+      const PAGE_SIZE = 1000;
+      let hasMore = true;
+      while (hasMore) {
+        const { data, error } = await supabase.from('missions').select('*').range(from, from + PAGE_SIZE - 1);
+        if (error) throw error;
+        if (data && data.length > 0) {
+          allMissionsRaw = [...allMissionsRaw, ...data];
+          from += PAGE_SIZE;
+          hasMore = data.length === PAGE_SIZE;
+        } else { hasMore = false; }
+      }
+      results.missions = allMissionsRaw.map(m => mapSupabaseToMission(m));
     } catch (e) { console.warn('Missions load failed', e); }
 
-    // Collaborators
+    // Collaborators (Paginated)
     try {
-      const { data: collaborators } = await supabase.from('collaborators').select('*');
-      if (collaborators) results.collaborators = collaborators.map(c => mapSupabaseToCollaborator(c));
+      let allCollabsRaw: any[] = [];
+      let from = 0;
+      const PAGE_SIZE = 1000;
+      let hasMore = true;
+      while (hasMore) {
+        const { data, error } = await supabase.from('collaborators').select('*').range(from, from + PAGE_SIZE - 1);
+        if (error) throw error;
+        if (data && data.length > 0) {
+          allCollabsRaw = [...allCollabsRaw, ...data];
+          from += PAGE_SIZE;
+          hasMore = data.length === PAGE_SIZE;
+        } else { hasMore = false; }
+      }
+      results.collaborators = allCollabsRaw.map(c => mapSupabaseToCollaborator(c));
     } catch (e) { console.warn('Collaborators load failed', e); }
 
-    // Users
+    // Users (Paginated)
     try {
-      const { data: users } = await supabase.from('users').select('*');
-      if (users) results.users = users.map(u => mapSupabaseToUser(u));
+      let allUsersRaw: any[] = [];
+      let from = 0;
+      const PAGE_SIZE = 1000;
+      let hasMore = true;
+      while (hasMore) {
+        const { data, error } = await supabase.from('users').select('*').range(from, from + PAGE_SIZE - 1);
+        if (error) throw error;
+        if (data && data.length > 0) {
+          allUsersRaw = [...allUsersRaw, ...data];
+          from += PAGE_SIZE;
+          hasMore = data.length === PAGE_SIZE;
+        } else { hasMore = false; }
+      }
+      results.users = allUsersRaw.map(u => mapSupabaseToUser(u));
     } catch (e) { console.warn('Users load failed', e); }
 
     // Planning (Paginated)

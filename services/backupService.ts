@@ -58,48 +58,91 @@ const isValidUuid = (uuid: any): boolean => {
 };
 
 /**
+ * Fetches all rows from a Supabase table using pagination.
+ */
+const fetchAllRows = async (table: string): Promise<any[]> => {
+  let allData: any[] = [];
+  let from = 0;
+  const PAGE_SIZE = 1000;
+  let hasMore = true;
+
+  while (hasMore) {
+    const { data, error } = await supabase
+      .from(table)
+      .select('*')
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (error) {
+      console.error(`Error fetching all rows from ${table}:`, error);
+      throw error;
+    }
+
+    if (data && data.length > 0) {
+      allData = [...allData, ...data];
+      from += PAGE_SIZE;
+      hasMore = data.length === PAGE_SIZE;
+    } else {
+      hasMore = false;
+    }
+  }
+  
+  console.log(`[Export] Table ${table}: ${allData.length} rows fetched successfully.`);
+  return allData;
+};
+
+/**
  * EXPORT JSON
  */
 export const exportFullBackupJson = async (): Promise<FullBackup> => {
-  const [
-    { data: collaborators },
-    { data: missions },
-    { data: planning },
-    { data: timesheets },
-    { data: budget_data },
-    { data: config },
-    { data: users }
-  ] = await Promise.all([
-    supabase.from('collaborators').select('*'),
-    supabase.from('missions').select('*'),
-    supabase.from('planning').select('*'),
-    supabase.from('timesheets').select('*'),
-    supabase.from('budget_data').select('*'),
-    supabase.from('config').select('*'),
-    supabase.from('users').select('*'),
-  ]);
+  const tables = ['collaborators', 'missions', 'planning', 'timesheets', 'budget_data', 'config', 'users'];
+  
+  const results = await Promise.all(tables.map(async table => {
+    try {
+      const data = await fetchAllRows(table);
+      return { table, data, success: true };
+    } catch (error: any) {
+      return { table, data: [], success: false, error: error.message };
+    }
+  }));
+
+  const collaborators = results.find(r => r.table === 'collaborators')?.data || [];
+  const missions = results.find(r => r.table === 'missions')?.data || [];
+  const planning = results.find(r => r.table === 'planning')?.data || [];
+  const timesheets = results.find(r => r.table === 'timesheets')?.data || [];
+  const budget_data = results.find(r => r.table === 'budget_data')?.data || [];
+  const config = results.find(r => r.table === 'config')?.data || [];
+  const users = results.find(r => r.table === 'users')?.data || [];
 
   const backup: FullBackup = {
     metadata: {
       app: "OptimusPlan",
-      exportVersion: "1.0.0",
+      exportVersion: "1.1.0",
       exportedAt: new Date().toISOString(),
       environment: "production",
       schema: "supabase",
-      description: "Full OptimusPlan business backup"
+      description: "Full OptimusPlan business backup (Paginated)"
     },
     data: {
-      collaborators: collaborators || [],
-      missions: missions || [],
-      planning: planning || [],
-      timesheets: timesheets || [],
-      budget_data: budget_data || [],
-      config: config || []
+      collaborators,
+      missions,
+      planning,
+      timesheets,
+      budget_data,
+      config
     },
     technical: {
-      legacy_users: users || []
+      legacy_users: users,
+      // Add control summary for validation
+      control_summary: results.map(r => ({
+        table: r.table,
+        count: r.data.length,
+        status: r.success ? 'OK' : 'ERROR',
+        error: r.error
+      }))
     }
   };
+
+  console.table(backup.technical.control_summary);
 
   return backup;
 };
