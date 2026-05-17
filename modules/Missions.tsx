@@ -98,31 +98,41 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
 
   useEffect(() => {
     if (editingMission && editingMission.id) {
+      // Prioritize internalStaffing from the mission object itself.
+      // We only fallback to reconstruction (else block) if it's missing or truly empty on an existing mission 
+      // where we expect planning to be the source of truth (legacy support).
+      // However, if it's a modern mission with an explicit staffing array (even empty), we should trust it.
       if (editingMission.internalStaffing && editingMission.internalStaffing.length > 0) {
         setInternalStaffing([...editingMission.internalStaffing]);
       } else {
         const existingPlanning = state.planning.filter(p => p.missionId === editingMission.id && !p.externalType);
-        const groupedInternals: Record<string, PlanningEntry[]> = {};
-        existingPlanning.forEach(p => {
-          if (!groupedInternals[p.userId]) groupedInternals[p.userId] = [];
-          groupedInternals[p.userId].push(p);
-        });
+        
+        // Only reconstruct if we have no staffing array OR it's empty BUT we have valid planning entries
+        if (existingPlanning.length > 0) {
+          const groupedInternals: Record<string, PlanningEntry[]> = {};
+          existingPlanning.forEach(p => {
+            if (!groupedInternals[p.userId]) groupedInternals[p.userId] = [];
+            groupedInternals[p.userId].push(p);
+          });
 
-        const intRows: InternalStaffing[] = Object.entries(groupedInternals).map(([userId, entries]) => {
-          const dates = entries.map(e => parseISO(e.weekStart));
-          const collaborator = state.collaborators.find(u => u.id === userId);
-          return {
-            id: generateId(),
-            userId,
-            collaboratorId: userId,
-            startDate: format(new Date(Math.min(...dates.map(d => d.getTime()))), 'yyyy-MM-dd'),
-            endDate: format(new Date(Math.max(...dates.map(d => d.getTime()))), 'yyyy-MM-dd'),
-            percentage: Math.round(entries.reduce((acc, e) => acc + e.percentage, 0) / entries.length),
-            cjm: entries[0].costDay || collaborator?.cjm || 500,
-            tjm: entries[0].tjm || 800
-          };
-        });
-        setInternalStaffing(intRows);
+          const intRows: InternalStaffing[] = Object.entries(groupedInternals).map(([userId, entries]) => {
+            const dates = entries.map(e => parseISO(e.weekStart));
+            const collaborator = state.collaborators.find(u => u.id === userId);
+            return {
+              id: generateId(),
+              userId,
+              collaboratorId: userId,
+              startDate: format(new Date(Math.min(...dates.map(d => d.getTime()))), 'yyyy-MM-dd'),
+              endDate: format(new Date(Math.max(...dates.map(d => d.getTime()))), 'yyyy-MM-dd'),
+              percentage: Math.round(entries.reduce((acc, e) => acc + e.percentage, 0) / entries.length),
+              cjm: entries[0].costDay || collaborator?.cjm || 500,
+              tjm: entries[0].tjm || 800
+            };
+          });
+          setInternalStaffing(intRows);
+        } else {
+          setInternalStaffing([]);
+        }
       }
       setFreelanceStaffing(editingMission.freelanceStaffing || []);
       setSubcontractorStaffing(editingMission.subcontractorStaffing || []);
@@ -333,9 +343,15 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
 
     // Robust Cloud Sync
     const performSync = async () => {
+        // First delete ONLY the mission's planning entries to ensure removed staffing is cleared from cloud
+        await deletePlanningEntriesForMission(missionId);
+        
         await syncMissionToCloud(finalMission);
-        await syncPlanningToCloud(newMissionPlanning);
-        // Refresh planning from cloud after save
+        if (newMissionPlanning.length > 0) {
+          await syncPlanningToCloud(newMissionPlanning);
+        }
+        
+        // Refresh planning from cloud after save to ensure all clients have the same view
         const freshPlanning = await loadPlanningFromCloud();
         if (freshPlanning.length > 0) {
             updateState({ planning: freshPlanning });
