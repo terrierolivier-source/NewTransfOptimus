@@ -86,6 +86,28 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
   const [activePoMissionId, setActivePoMissionId] = useState<string | null>(null);
   const [tempPo, setTempPo] = useState<string>('');
 
+  const [pointedExpenses, setPointedExpenses] = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem('optimus_pointed_expenses');
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+
+  const handleTogglePointed = (expenseId: string) => {
+    setPointedExpenses(prev => {
+      const next = new Set(prev);
+      if (next.has(expenseId)) {
+        next.delete(expenseId);
+      } else {
+        next.add(expenseId);
+      }
+      localStorage.setItem('optimus_pointed_expenses', JSON.stringify(Array.from(next)));
+      return next;
+    });
+  };
+
   const { missions, globalCountry, globalFY, manualExpenses, budgetFamilies, budgetValues, users } = state;
   const currentYearInt = parseInt(globalFY?.replace('FY', '') || '2025');
   const fyStart = new Date(currentYearInt, 1, 1);
@@ -919,7 +941,16 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
                               const isAuto = exp.id.startsWith('auto-');
                               return (
                                 <tr key={exp.id} className={`group hover:bg-navy/[0.03] ${isAuto ? 'italic' : ''}`}>
-                                  <td className="py-2 pl-20 pr-4 border-r sticky left-0 z-30 bg-white group-hover:bg-slate-50 transition-colors shadow-sm w-[650px] flex items-center justify-between">
+                                  <td className="py-2 pl-20 pr-4 border-r sticky left-0 z-30 bg-white group-hover:bg-slate-50 transition-colors shadow-sm w-[650px] flex items-center justify-between relative animate-fade-in">
+                                     <div className="absolute left-14 top-1/2 -translate-y-1/2 flex items-center">
+                                       <input 
+                                         type="checkbox" 
+                                         className="w-3.5 h-3.5 text-navy border-gray-300 rounded focus:ring-navy focus:ring-2 accent-navy cursor-pointer transition-all hover:scale-110"
+                                         checked={pointedExpenses.has(exp.id)}
+                                         onChange={() => handleTogglePointed(exp.id)}
+                                         title="Pointer cette ligne"
+                                       />
+                                     </div>
                                      <div className="flex items-center flex-1 min-w-0 mr-2">
                                         {isAuto && <Link size={12} className="text-blue-500 mr-2 shrink-0" />}
                                         <input 
