@@ -1048,19 +1048,12 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
                               }} />
                            </div>
                         </div>
-                        <div className="grid grid-cols-2 gap-4 items-end">
+                        <div className="grid grid-cols-1 gap-4 items-end">
                           <div className="space-y-1.5">
                             <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest">Achat (€)</label>
                             <input type="number" className="w-full border rounded-lg p-2 text-xs font-black text-navy outline-none shadow-sm" value={row.amount} onChange={e => {
                               const next = [...subcontractorStaffing]; const idx = next.findIndex(item => item.id === row.id);
                               if (idx !== -1) { next[idx].amount = parseInt(e.target.value) || 0; setSubcontractorStaffing(next); }
-                            }} />
-                          </div>
-                          <div className="space-y-1.5">
-                            <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest">Vente (€)</label>
-                            <input type="number" className="w-full border rounded-lg p-2 text-xs font-black text-navy outline-none shadow-sm" value={row.soldAmount} onChange={e => {
-                              const next = [...subcontractorStaffing]; const idx = next.findIndex(item => item.id === row.id);
-                              if (idx !== -1) { next[idx].soldAmount = parseInt(e.target.value) || 0; setSubcontractorStaffing(next); }
                             }} />
                           </div>
                         </div>
