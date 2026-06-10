@@ -175,7 +175,7 @@ const mapPlanningToSupabase = (p: PlanningEntry) => {
     sentiment: p.sentiment,
     weather: p.weather,
     comment: p.comment,
-    updated_at: new Date().toISOString()
+    updated_at: p.updatedAt || new Date().toISOString()
   };
 
   const validId = nullableUuid(p.id);
@@ -199,7 +199,8 @@ const mapSupabaseToPlanning = (p: any): PlanningEntry => ({
   costDay: p.cost_day,
   sentiment: p.sentiment,
   weather: p.weather,
-  comment: p.comment
+  comment: p.comment,
+  updatedAt: p.updated_at
 });
 
 const mapTimesheetToSupabase = (t: TimesheetEntry) => {

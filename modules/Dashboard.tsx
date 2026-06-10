@@ -22,6 +22,17 @@ interface DashboardProps {
   state: AppState;
 }
 
+const formatMoodDate = (dateStr?: string) => {
+  if (!dateStr) return '';
+  try {
+    const d = parseISO(dateStr);
+    if (!isValid(d)) return '';
+    return ` (le ${format(d, 'dd/MM/yyyy')})`;
+  } catch {
+    return '';
+  }
+};
+
 const Dashboard: React.FC<DashboardProps> = ({ state }) => {
   const { missions, planning, timesheets: rawTimesheets, collaborators, globalCountry, globalFY, budgetValues, holidays, manualExpenses } = state;
   const today = startOfToday();
@@ -559,9 +570,16 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
       if (m.status !== MissionStatus.EN_COURS) return;
       
       const missionPlanning = planning.filter(p => p.missionId === m.id);
-      const lowMoodEntries = missionPlanning.filter(p => p.sentiment && ['😐', '😟', '😡'].includes(p.sentiment));
+      const lowMoodEntries = missionPlanning.filter(p => p.sentiment && !['🤩', '😊', '😐'].includes(p.sentiment));
       
-      lowMoodEntries.forEach(entry => {
+      // Trier par date du changement de statut pour avoir la version la plus récente en premier
+      const sortedLowMoodEntries = [...lowMoodEntries].sort((a, b) => {
+        const dateA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+        const dateB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+        return dateB - dateA;
+      });
+      
+      sortedLowMoodEntries.forEach(entry => {
         const collabId = entry.collaboratorId || entry.userId;
         const collab = collaborators.find(c => c.id === collabId);
         if (collab && isOperationalCollaborator(collab) && !processedUsers.has(`${m.id}-${collab.id}`)) {
@@ -570,7 +588,8 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
             missionId: m.id,
             clientName: m.clientName,
             missionName: m.name,
-            sentiment: entry.sentiment
+            sentiment: entry.sentiment,
+            updatedAt: entry.updatedAt
           });
           processedUsers.add(`${m.id}-${collab.id}`);
         }
@@ -976,21 +995,21 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
             }[key as keyof typeof alerts];
             return (
               <div key={key} className="relative group">
-                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-4 w-72 bg-navy/95 backdrop-blur-md rounded-2xl shadow-2xl border border-white/10 p-5 hidden group-hover:block z-[60] animate-in fade-in zoom-in duration-200 pointer-events-none transition-all">
-                  <div className="text-[10px] font-black text-yellow-accent uppercase mb-4 border-b border-white/10 pb-2 flex justify-between items-center tracking-widest">
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-4 w-80 bg-navy/95 backdrop-blur-md rounded-2xl shadow-2xl border border-white/15 p-5 hidden group-hover:block z-[60] animate-in fade-in zoom-in duration-200 pointer-events-none transition-all">
+                  <div className="text-xs font-black text-yellow-accent uppercase mb-4 border-b border-white/10 pb-2 flex justify-between items-center tracking-widest">
                     <span>Détails Alertes</span>
-                    <span className="bg-white/10 px-2 py-0.5 rounded text-white font-mono">{list.length}</span>
+                    <span className="bg-white/15 px-2.5 py-0.5 rounded-lg text-white font-mono text-[10px]">{list.length}</span>
                   </div>
-                  <div className="space-y-3">
-                    {list.length === 0 ? <p className="text-[9px] text-white/40 font-bold uppercase italic text-center py-2">Aucune alerte</p> : list.slice(0, 12).map((item: any, idx: number) => (
-                      <div key={idx} className="flex flex-col border-l-2 border-yellow-accent/40 pl-3 py-0.5 hover:bg-white/5 rounded-r transition-colors">
-                        <p className="text-[10px] font-black text-white uppercase truncate tracking-tight">
+                  <div className="space-y-3.5">
+                    {list.length === 0 ? <p className="text-[11px] text-white/60 font-bold uppercase italic text-center py-2">Aucune alerte</p> : list.slice(0, 12).map((item: any, idx: number) => (
+                      <div key={idx} className="flex flex-col border-l-2 border-yellow-accent pl-3 py-1 hover:bg-white/5 rounded-r transition-colors">
+                        <p className="text-xs font-black text-white uppercase truncate tracking-tight">
                           {key === 'lowMargin' ? item.mission.clientName : (key === 'noStaffing' || key === 'badWeatherMissions' || key === 'lowMoodConsultants' ? item.clientName : `${item.firstName} ${item.lastName}`)}
                         </p>
-                        <p className="text-[8px] text-white/40 font-bold uppercase truncate mt-0.5">
+                        <p className="text-[10px] text-white font-bold uppercase truncate mt-1">
                           {key === 'lowMargin' ? `${Math.round(item.margin)}% marge` : 
                            (key === 'noStaffing' || key === 'badWeatherMissions' ? item.name : 
-                            (key === 'lowMoodConsultants' ? `${item.firstName} ${item.lastName} ${item.sentiment}` : item.grade))}
+                            (key === 'lowMoodConsultants' ? `${item.firstName} ${item.lastName} ${item.sentiment}${formatMoodDate(item.updatedAt)}` : item.grade))}
                         </p>
                       </div>
                     ))}

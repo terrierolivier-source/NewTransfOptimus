@@ -174,6 +174,7 @@ export interface PlanningEntry {
   sentiment?: string; 
   weather?: string; 
   comment?: string; 
+  updatedAt?: string;
 }
 
 export interface TimesheetEntry {

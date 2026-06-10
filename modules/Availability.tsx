@@ -347,7 +347,14 @@ const Availability: React.FC<AvailabilityProps> = ({ state, updateState }) => {
   const handleSaveFeedback = async () => {
     if (!activeFeedbackId) return;
     const [userId, missionId] = activeFeedbackId.split('|');
-    const updatedPlanning = state.planning.map(p => (p.userId === userId && p.missionId === missionId) ? { ...p, sentiment: tempSentiment, weather: tempWeather, comment: tempComment } : p);
+    const nowStr = new Date().toISOString();
+    const updatedPlanning = state.planning.map(p => (p.userId === userId && p.missionId === missionId) ? { 
+      ...p, 
+      sentiment: tempSentiment, 
+      weather: tempWeather, 
+      comment: tempComment,
+      updatedAt: p.sentiment !== tempSentiment ? nowStr : (p.updatedAt || nowStr)
+    } : p);
     updateState({ planning: updatedPlanning });
     
     // Cloud Sync for specifically updated entries
