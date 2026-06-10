@@ -80,16 +80,6 @@ const Planning: React.FC<PlanningProps> = ({ state, updateState }) => {
   const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
   const [scrollLeft, setScrollLeft] = useState(0);
 
-  const [resizing, setResizing] = useState<{
-    id: string;
-    direction: 'left' | 'right';
-    initialMouseX: number;
-    initialDate: string;
-    currentDate: string;
-    mouseX: number;
-    mouseY: number;
-  } | null>(null);
-
   const viewStartDate = useMemo(() => {
     const d = parseISO(startDateStr);
     return isValid(d) ? d : parseISO('2025-02-01');
@@ -322,54 +312,6 @@ const Planning: React.FC<PlanningProps> = ({ state, updateState }) => {
     return getBarStyles(staffing.startDate, staffing.endDate);
   };
 
-  useEffect(() => {
-    if (!resizing) return;
-    document.body.style.cursor = 'ew-resize';
-    const handleMouseMove = (e: MouseEvent) => {
-      const deltaX = e.clientX - resizing.initialMouseX;
-      const pixelsPerDay = config.colWidth / config.daysInUnit;
-      const deltaDays = Math.round(deltaX / pixelsPerDay);
-      if (deltaDays === 0) return;
-      const originalDate = parseISO(resizing.initialDate);
-      if (!isValid(originalDate)) return;
-      const newDate = addDays(originalDate, deltaDays);
-      const newDateStr = format(newDate, 'yyyy-MM-dd');
-      setResizing(prev => prev ? { ...prev, currentDate: newDateStr, mouseX: e.clientX, mouseY: e.clientY } : null);
-      const newMissions = state.missions.map(m => {
-        if (m.id !== resizing.id) return m;
-        if (resizing.direction === 'left') {
-          if (isAfter(newDate, parseISO(m.endDate))) return m;
-          return { ...m, startDate: newDateStr };
-        } else {
-          if (isBefore(newDate, parseISO(m.startDate))) return m;
-          return { ...m, endDate: newDateStr };
-        }
-      });
-      updateState({ missions: newMissions });
-    };
-    const handleMouseUp = () => {
-      if (resizing) {
-        const modifiedMission = state.missions.find(m => m.id === resizing.id);
-        if (modifiedMission) {
-          syncMissionToCloud(modifiedMission);
-        }
-      }
-      setResizing(null);
-      document.body.style.cursor = 'default';
-    };
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [resizing, config, state.missions, updateState]);
-
-  const handleStartResize = (e: React.MouseEvent, missionId: string, direction: 'left' | 'right', initialDate: string) => {
-    e.preventDefault(); e.stopPropagation();
-    setResizing({ id: missionId, direction, initialMouseX: e.clientX, initialDate, currentDate: initialDate, mouseX: e.clientX, mouseY: e.clientY });
-  };
-
   const filteredMissions = useMemo(() => {
     let result = state.missions.filter(m => 
       m.active && 
@@ -399,16 +341,8 @@ const Planning: React.FC<PlanningProps> = ({ state, updateState }) => {
   };
 
   const getMissionWarnings = (m: Mission) => {
-    const mStart = parseISO(m.startDate);
-    const mEnd = parseISO(m.endDate);
     const allStaff = [...(m.internalStaffing || []), ...(m.freelanceStaffing || []), ...(m.subcontractorStaffing || [])].filter(s => s.startDate && s.endDate);
     if (allStaff.length === 0) return { any: true, message: "Alerte : Aucun staffing sur cette mission" };
-    const earliestStaffStart = allStaff.reduce((min, s) => { const d = parseISO(s.startDate); return isBefore(d, min) ? d : min; }, parseISO(allStaff[0].startDate));
-    const latestStaffEnd = allStaff.reduce((max, s) => { const d = parseISO(s.endDate); return isAfter(d, max) ? d : max; }, parseISO(allStaff[0].startDate));
-    const hasGap = isBefore(mStart, earliestStaffStart) || isAfter(mEnd, latestStaffEnd);
-    const hasOverflow = isBefore(earliestStaffStart, mStart) || isAfter(latestStaffEnd, mEnd);
-    if (hasGap) return { any: true, message: "Alerte : Mission non couverte" };
-    if (hasOverflow) return { any: true, message: "Alerte : Staffing hors période mission" };
     return { any: false };
   };
 
@@ -426,20 +360,6 @@ const Planning: React.FC<PlanningProps> = ({ state, updateState }) => {
 
   return (
     <div className="space-y-6 flex flex-col h-full relative">
-      {resizing && (
-        <div 
-          className="fixed z-[9999] pointer-events-none flex flex-col items-center gap-1 -translate-x-1/2 -translate-y-full pb-4 animate-in fade-in duration-150"
-          style={{ left: resizing.mouseX, top: resizing.mouseY }}
-        >
-          <div className="bg-navy text-white px-3 py-1.5 rounded-lg shadow-2xl border border-white/20 flex items-center gap-2">
-            <CalendarDays size={14} className="text-yellow-accent" />
-            <span className="text-[11px] font-black tracking-tight font-mono">
-              {format(parseISO(resizing.currentDate), 'dd/MM/yyyy')}
-            </span>
-          </div>
-          <div className="w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[6px] border-t-navy"></div>
-        </div>
-      )}
 
       <div className="bg-white p-4 rounded-xl border shadow-sm flex flex-col xl:flex-row items-center justify-between gap-4 shrink-0">
         <div className="flex flex-col md:flex-row xl:flex-row items-center gap-3 w-full xl:flex-1">
@@ -599,9 +519,6 @@ const Planning: React.FC<PlanningProps> = ({ state, updateState }) => {
                     <div className="flex-1 relative h-full">
                       {barStyles && (
                         <div className={`absolute top-1/2 -translate-y-1/2 h-10 rounded-lg flex items-center px-4 shadow-md border font-black text-[10px] uppercase tracking-wider transition-all z-10 overflow-hidden ${m.billingMode === BillingMode.FORFAIT ? 'bg-navy text-white border-navy/20' : 'bg-yellow-accent text-navy border-yellow-500/30'} ${m.status === MissionStatus.TERMINEE ? 'opacity-50 grayscale-[0.5]' : ''}`} style={{ left: barStyles.left, width: barStyles.width }}>
-                          <div onMouseDown={(e) => handleStartResize(e, m.id, 'left', m.startDate)} className="absolute left-0 top-0 bottom-0 w-3 cursor-ew-resize hover:bg-white/20 transition-colors rounded-l-lg z-20 flex items-center justify-center group/h">
-                             <div className="w-1 h-4 bg-white/20 rounded-full group-hover/h:bg-white/40" />
-                          </div>
                           <div 
                             style={{ transform: `translateX(${getStickyOffset(barStyles.numericLeft, barStyles.numericWidth)}px)` }}
                             className="flex items-center min-w-0 max-w-full gap-1.5 will-change-transform whitespace-nowrap"
@@ -615,9 +532,6 @@ const Planning: React.FC<PlanningProps> = ({ state, updateState }) => {
                                 <span className="text-[10px] font-black">!</span>
                               </div>
                             )}
-                          </div>
-                          <div onMouseDown={(e) => handleStartResize(e, m.id, 'right', m.endDate)} className="absolute right-0 top-0 bottom-0 w-3 cursor-ew-resize hover:bg-white/20 transition-colors rounded-r-lg z-20 flex items-center justify-center group/h">
-                             <div className="w-1 h-4 bg-white/20 rounded-full group-hover/h:bg-white/40" />
                           </div>
                         </div>
                       )}

@@ -56,7 +56,7 @@ const Timesheets: React.FC<TimesheetsProps> = ({
 }) => {
   const { timesheets: rawTimesheets } = state;
   const [anchorWeek, setAnchorWeek] = useState(getMonday(new Date()));
-  const [selectedUserId, setSelectedUserId] = useState(state.currentUser?.id || '');
+  const [selectedUserId, setSelectedUserId] = useState('');
 
   // Deduplicate timesheets for display and logic
   const timesheets = useMemo(() => {
@@ -515,10 +515,13 @@ const Timesheets: React.FC<TimesheetsProps> = ({
           </div>
           <div className="hidden md:block h-8 w-px bg-gray-200"></div>
           <div className="flex items-center gap-2.5 w-full md:w-auto mt-2 md:mt-0">
-            <div className="w-7 h-7 rounded-full bg-navy text-yellow-accent flex items-center justify-center font-black text-[10px] border border-navy/10 uppercase shrink-0">
-                {selectedUser?.name.split(' ').map(n => n[0]).join('')}
-            </div>
+            {selectedUser && (
+              <div className="w-7 h-7 rounded-full bg-navy text-yellow-accent flex items-center justify-center font-black text-[10px] border border-navy/10 uppercase shrink-0">
+                  {selectedUser.name.split(' ').map(n => n[0]).join('')}
+              </div>
+            )}
             <select value={selectedUserId} onChange={(e) => setSelectedUserId(e.target.value)} className="flex-1 md:flex-none bg-brand-gray border-2 border-transparent focus:border-yellow-accent rounded-lg px-3 py-1.5 text-[10px] font-black text-navy outline-none cursor-pointer transition-all hover:bg-gray-200 min-w-0">
+              <option value="">Choisir un collaborateur...</option>
               {selectableUsers.map(u => (
                 <option key={u.id} value={u.id}>
                   {u.name} ({u.role}) {u.isExternal ? '👤 EXT' : ''}
@@ -527,138 +530,160 @@ const Timesheets: React.FC<TimesheetsProps> = ({
             </select>
           </div>
         </div>
+
+        <div className="hidden lg:flex items-center gap-2.5 px-3 py-1.5 bg-yellow-accent/5 rounded-lg border border-yellow-400/20 text-[9px] font-black uppercase text-navy/60 select-none">
+          <span className="text-navy/40">Légende :</span>
+          <span className="text-navy">100% = 8h (journée complète)</span>
+          <span className="text-navy/20 font-light">//</span>
+          <span className="text-navy">50% = 4h (demie journée)</span>
+          <span className="text-navy/20 font-light">//</span>
+          <span className="text-navy">25% = 2h</span>
+        </div>
+
         <button onClick={() => setAnchorWeek(getMonday(new Date()))} className="w-full lg:w-auto px-4 py-2 bg-navy text-yellow-accent text-[9px] font-black uppercase tracking-widest rounded-lg hover:bg-navy/90 transition-all shadow-md active:scale-95">Cette semaine</button>
       </div>
 
-      <div className="space-y-10 flex-1 overflow-auto pr-2 custom-scrollbar">
-        {displayedWeeks.map((weekStart, wIdx) => {
-          const { weekKey, weekDays, dailyData, isDayHoliday, getDayTotal } = getWeekData(weekStart);
-          return (
-            <div key={weekKey} className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-500" style={{ animationDelay: `${wIdx * 100}ms` }}>
-              <div className="flex items-center gap-4 px-2">
-                <div className="h-px flex-1 bg-gradient-to-r from-transparent via-gray-200 to-transparent"></div>
-                <h3 className="text-[10px] font-black text-navy/40 uppercase tracking-[0.3em] flex items-center gap-3">
-                   Semaine du {format(weekStart, 'dd MMMM', { locale: fr })}
-                   <span className="bg-navy/5 text-navy/60 px-2 py-0.5 rounded-full text-[8px] tracking-normal">S{format(weekStart, 'w')}</span>
-                </h3>
-                <div className="h-px flex-1 bg-gradient-to-r from-transparent via-gray-200 to-transparent"></div>
-              </div>
+      {selectedUserId ? (
+        <div className="space-y-10 flex-1 overflow-auto pr-2 custom-scrollbar">
+          {displayedWeeks.map((weekStart, wIdx) => {
+            const { weekKey, weekDays, dailyData, isDayHoliday, getDayTotal } = getWeekData(weekStart);
+            return (
+              <div key={weekKey} className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-500" style={{ animationDelay: `${wIdx * 100}ms` }}>
+                <div className="flex items-center gap-4 px-2">
+                  <div className="h-px flex-1 bg-gradient-to-r from-transparent via-gray-200 to-transparent"></div>
+                  <h3 className="text-[10px] font-black text-navy/40 uppercase tracking-[0.3em] flex items-center gap-3">
+                     Semaine du {format(weekStart, 'dd MMMM', { locale: fr })}
+                     <span className="bg-navy/5 text-navy/60 px-2 py-0.5 rounded-full text-[8px] tracking-normal">S{format(weekStart, 'w')}</span>
+                  </h3>
+                  <div className="h-px flex-1 bg-gradient-to-r from-transparent via-gray-200 to-transparent"></div>
+                </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-                {weekDays.map((day, dayIdx) => {
-                  const holiday = isDayHoliday(day);
-                  const dayEntries = dailyData[dayIdx];
-                  const total = getDayTotal(dayIdx);
-                  const isToday = isSameDay(day, new Date());
-                  
-                  return (
-                    <div key={dayIdx} className={`flex flex-col rounded-xl border-2 transition-all relative h-[280px] group/day ${holiday ? 'border-gray-100 bg-gray-50/50' : isToday ? 'border-yellow-accent bg-white shadow-lg scale-[1.01] z-10' : 'border-gray-100 bg-white/60 hover:bg-white hover:border-gray-200 hover:shadow-md'}`}>
-                      <div className={`p-2.5 border-b flex flex-col items-center gap-0.5 rounded-t-xl shrink-0 ${holiday ? 'bg-gray-100/30' : isToday ? 'bg-yellow-accent/10' : 'bg-gray-50/30'}`}>
-                        <span className="text-[9px] font-black text-navy/40 uppercase tracking-widest leading-none">{format(day, 'EEEE', { locale: fr })}</span>
-                        <span className={`text-xl font-black leading-none ${isToday ? 'text-navy' : 'text-navy/70'}`}>{format(day, 'dd')}</span>
-                        {!holiday && (
-                          <div className={`mt-1 px-3 py-1 rounded-full text-[10px] font-black border shadow-sm transition-all duration-300 ${total > 100 ? 'bg-red-500 text-white border-red-600' : total === 100 ? 'bg-emerald-500 text-white border-emerald-600' : 'bg-navy/5 text-navy border-navy/10'}`}>
-                            {total}%
-                          </div>
-                        )}
-                      </div>
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+                  {weekDays.map((day, dayIdx) => {
+                    const holiday = isDayHoliday(day);
+                    const dayEntries = dailyData[dayIdx];
+                    const total = getDayTotal(dayIdx);
+                    const isToday = isSameDay(day, new Date());
+                    
+                    return (
+                      <div key={dayIdx} className={`flex flex-col rounded-xl border-2 transition-all relative h-[280px] group/day ${holiday ? 'border-gray-100 bg-gray-50/50' : isToday ? 'border-yellow-accent bg-white shadow-lg scale-[1.01] z-10' : 'border-gray-100 bg-white/60 hover:bg-white hover:border-gray-200 hover:shadow-md'}`}>
+                        <div className={`p-2.5 border-b flex flex-col items-center gap-0.5 rounded-t-xl shrink-0 ${holiday ? 'bg-gray-100/30' : isToday ? 'bg-yellow-accent/10' : 'bg-gray-50/30'}`}>
+                          <span className="text-[9px] font-black text-navy/40 uppercase tracking-widest leading-none">{format(day, 'EEEE', { locale: fr })}</span>
+                          <span className={`text-xl font-black leading-none ${isToday ? 'text-navy' : 'text-navy/70'}`}>{format(day, 'dd')}</span>
+                          {!holiday && (
+                            <div className={`mt-1 px-3 py-1 rounded-full text-[10px] font-black border shadow-sm transition-all duration-300 ${total > 100 ? 'bg-red-500 text-white border-red-600' : total === 100 ? 'bg-emerald-500 text-white border-emerald-600' : 'bg-navy/5 text-navy border-navy/10'}`}>
+                              {total}%
+                            </div>
+                          )}
+                        </div>
 
-                      <div className="flex-1 p-2 space-y-2 overflow-y-auto custom-scrollbar relative">
-                        {holiday ? (
-                          <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center opacity-30">
-                            <CalendarOff size={32} className="mb-2 text-gray-300 stroke-[1.5]" />
-                            <span className="text-[8px] font-black uppercase tracking-widest text-gray-400 leading-tight">{holiday.label}</span>
-                          </div>
-                        ) : (
-                          <>
-                            {dayEntries.map(entry => {
-                              const mission = entry.missionId ? state.missions.find(m => m.id === entry.missionId) : null;
-                              const isCategory = !!entry.activityType || !mission;
-                              const category = CATEGORIES.find(c => c.id === (entry.activityType || entry.missionId));
-                              let style = entry.isActual ? APP_COLORS.ACTUAL : APP_COLORS.FORECAST;
-                              if (isCategory) style = category?.color || APP_COLORS.INTERMISSION;
+                        <div className="flex-1 p-2 space-y-2 overflow-y-auto custom-scrollbar relative">
+                          {holiday ? (
+                            <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center opacity-30">
+                              <CalendarOff size={32} className="mb-2 text-gray-300 stroke-[1.5]" />
+                              <span className="text-[8px] font-black uppercase tracking-widest text-gray-400 leading-tight">{holiday.label}</span>
+                            </div>
+                          ) : (
+                            <>
+                              {dayEntries.map(entry => {
+                                const mission = entry.missionId ? state.missions.find(m => m.id === entry.missionId) : null;
+                                const isCategory = !!entry.activityType || !mission;
+                                const category = CATEGORIES.find(c => c.id === (entry.activityType || entry.missionId));
+                                let style = entry.isActual ? APP_COLORS.ACTUAL : APP_COLORS.FORECAST;
+                                if (isCategory) style = category?.color || APP_COLORS.INTERMISSION;
+                                
+                                return (
+                                  <div key={entry.id} onClick={() => handleOpenValidation(entry)} className={`p-2.5 rounded-lg border shadow-sm relative group cursor-pointer hover:shadow-md transition-all animate-in zoom-in duration-200 ${style}`}>
+                                    <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                                      {!entry.isActual && !isCategory && canEdit && (
+                                          <button onClick={(e) => { e.stopPropagation(); handleQuickValidate(e, entry); }} className="p-1 bg-amber-500 text-white rounded shadow-md transition-all active:scale-90" title="Valider tel quel">
+                                              <Check size={10} strokeWidth={4} />
+                                          </button>
+                                      )}
+                                      {canEdit && (
+                                          <button onClick={(e) => handleRemoveEntry(e, entry)} className="p-1 bg-white text-red-500 hover:bg-red-500 hover:text-white rounded border border-red-100 shadow-md transition-all" title="Retirer">
+                                              <X size={10} strokeWidth={4} />
+                                          </button>
+                                      )}
+                                    </div>
+                                    <div className="flex flex-col gap-1">
+                                      <div className="flex items-start gap-1.5 overflow-hidden">
+                                          <div className={`p-1 rounded shrink-0 ${entry.isActual ? 'bg-emerald-100' : (isCategory ? 'bg-white/50' : 'bg-amber-100')}`}>
+                                              {isCategory ? (category ? <category.icon size={10} className="text-current" /> : <Clock size={10} />) : <Briefcase size={10} className={entry.isActual ? 'text-emerald-700' : 'text-amber-700'} />}
+                                          </div>
+                                          <div className="overflow-hidden">
+                                              <span className="text-[9px] font-black uppercase truncate block leading-tight tracking-tight text-navy/80">{isCategory ? category?.label : mission?.clientName}</span>
+                                              {!isCategory && <span className="text-[7px] font-bold text-navy/40 uppercase truncate block leading-none mt-0.5">{mission?.name}</span>}
+                                          </div>
+                                      </div>
+                                      <div className="flex items-center justify-between mt-0.5">
+                                          <span className="text-sm font-black text-navy">{entry.percentage}%</span>
+                                          {entry.isActual && !isCategory && <div className="bg-emerald-500 text-white rounded-full p-0.5 shadow-sm"><Check size={8} strokeWidth={6} /></div>}
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
                               
-                              return (
-                                <div key={entry.id} onClick={() => handleOpenValidation(entry)} className={`p-2.5 rounded-lg border shadow-sm relative group cursor-pointer hover:shadow-md transition-all animate-in zoom-in duration-200 ${style}`}>
-                                  <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                                    {!entry.isActual && !isCategory && canEdit && (
-                                        <button onClick={(e) => { e.stopPropagation(); handleQuickValidate(e, entry); }} className="p-1 bg-amber-500 text-white rounded shadow-md transition-all active:scale-90" title="Valider tel quel">
-                                            <Check size={10} strokeWidth={4} />
-                                        </button>
-                                    )}
-                                    {canEdit && (
-                                        <button onClick={(e) => handleRemoveEntry(e, entry)} className="p-1 bg-white text-red-500 hover:bg-red-500 hover:text-white rounded border border-red-100 shadow-md transition-all" title="Retirer">
-                                            <X size={10} strokeWidth={4} />
-                                        </button>
-                                    )}
-                                  </div>
-                                  <div className="flex flex-col gap-1">
-                                    <div className="flex items-start gap-1.5 overflow-hidden">
-                                        <div className={`p-1 rounded shrink-0 ${entry.isActual ? 'bg-emerald-100' : (isCategory ? 'bg-white/50' : 'bg-amber-100')}`}>
-                                            {isCategory ? (category ? <category.icon size={10} className="text-current" /> : <Clock size={10} />) : <Briefcase size={10} className={entry.isActual ? 'text-emerald-700' : 'text-amber-700'} />}
-                                        </div>
-                                        <div className="overflow-hidden">
-                                            <span className="text-[9px] font-black uppercase truncate block leading-tight tracking-tight text-navy/80">{isCategory ? category?.label : mission?.clientName}</span>
-                                            {!isCategory && <span className="text-[7px] font-bold text-navy/40 uppercase truncate block leading-none mt-0.5">{mission?.name}</span>}
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center justify-between mt-0.5">
-                                        <span className="text-sm font-black text-navy">{entry.percentage}%</span>
-                                        {entry.isActual && !isCategory && <div className="bg-emerald-500 text-white rounded-full p-0.5 shadow-sm"><Check size={8} strokeWidth={6} /></div>}
-                                    </div>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                            
-                            {canEdit && (
-                              <button 
-                                onClick={() => setActiveMenuDay(activeMenuDay?.weekKey === weekKey && activeMenuDay?.dayIdx === dayIdx ? null : { weekKey, dayIdx })} 
-                                className={`w-full py-3 border-2 border-dashed rounded-lg transition-all flex flex-col items-center justify-center gap-1.5 group shrink-0 ${activeMenuDay?.weekKey === weekKey && activeMenuDay?.dayIdx === dayIdx ? 'border-navy bg-navy/5 text-navy' : 'border-gray-100 text-gray-300 hover:text-navy hover:border-navy/30 hover:bg-navy/5'}`}
-                              >
-                                <Plus size={18} className="group-hover:scale-110 transition-transform" />
-                                <span className="text-[8px] font-black uppercase tracking-[0.2em]">Ajouter</span>
-                              </button>
-                            )}
-                          </>
-                        )}
-                      </div>
+                              {canEdit && (
+                                <button 
+                                  onClick={() => setActiveMenuDay(activeMenuDay?.weekKey === weekKey && activeMenuDay?.dayIdx === dayIdx ? null : { weekKey, dayIdx })} 
+                                  className={`w-full py-3 border-2 border-dashed rounded-lg transition-all flex flex-col items-center justify-center gap-1.5 group shrink-0 ${activeMenuDay?.weekKey === weekKey && activeMenuDay?.dayIdx === dayIdx ? 'border-navy bg-navy/5 text-navy' : 'border-gray-100 text-gray-300 hover:text-navy hover:border-navy/30 hover:bg-navy/5'}`}
+                                >
+                                  <Plus size={18} className="group-hover:scale-110 transition-transform" />
+                                  <span className="text-[8px] font-black uppercase tracking-[0.2em]">Ajouter</span>
+                                </button>
+                              )}
+                            </>
+                          )}
+                        </div>
 
-                      {canEdit && activeMenuDay?.weekKey === weekKey && activeMenuDay?.dayIdx === dayIdx && (
-                        <div ref={menuRef} className="absolute top-2 left-2 right-2 bg-white rounded-xl shadow-2xl border-2 border-navy/10 ring-4 ring-black/5 z-[100] p-2 space-y-1 animate-in slide-in-from-top-2 duration-300 max-h-[270px] overflow-y-auto custom-scrollbar">
-                          <div className="text-[8px] font-black text-gray-400 uppercase p-1 tracking-[0.2em] border-b mb-1 flex items-center justify-between">Activités <Plus size={8} /></div>
-                          {CATEGORIES.map(cat => (
-                            <button 
-                              key={cat.id} 
-                              onClick={() => handleAddEntry(weekKey, dayIdx, cat.id)} 
-                              className="w-full text-left p-1.5 hover:bg-navy/5 rounded-lg text-[10px] font-black text-navy flex items-center gap-2 transition-all"
-                            >
-                              <div className={`p-1.5 rounded-md ${cat.color} shadow-sm`}><cat.icon size={12} /></div>
-                              {cat.label}
-                            </button>
-                          ))}
-                          <div className="text-[8px] font-black text-gray-400 uppercase p-1 tracking-[0.2em] border-t border-b my-1 flex items-center justify-between">Missions <Briefcase size={8} /></div>
-                          <div className="space-y-1 py-1">
-                            {allAvailableMissions.map(m => (
-                              <button key={m.id} onClick={() => handleAddEntry(weekKey, dayIdx, m.id)} className="w-full text-left p-1.5 hover:bg-navy/5 rounded-lg text-[10px] font-black text-navy flex items-start gap-2 transition-all group/btn">
-                                <div className="p-1.5 bg-yellow-accent/10 rounded-md group-hover/btn:bg-yellow-accent group-hover/btn:text-navy transition-colors text-yellow-600 shadow-sm shrink-0"><Briefcase size={12} /></div>
-                                <div className="flex flex-col min-w-0">
-                                  <div className="truncate uppercase tracking-tight font-black">{m.clientName}</div>
-                                  <div className="truncate uppercase text-[8px] text-gray-400 font-bold">{m.name}</div>
-                                </div>
+                        {canEdit && activeMenuDay?.weekKey === weekKey && activeMenuDay?.dayIdx === dayIdx && (
+                          <div ref={menuRef} className="absolute top-2 left-2 right-2 bg-white rounded-xl shadow-2xl border-2 border-navy/10 ring-4 ring-black/5 z-[100] p-2 space-y-1 animate-in slide-in-from-top-2 duration-300 max-h-[270px] overflow-y-auto custom-scrollbar">
+                            <div className="text-[8px] font-black text-gray-400 uppercase p-1 tracking-[0.2em] border-b mb-1 flex items-center justify-between">Activités <Plus size={8} /></div>
+                            {CATEGORIES.map(cat => (
+                              <button 
+                                key={cat.id} 
+                                onClick={() => handleAddEntry(weekKey, dayIdx, cat.id)} 
+                                className="w-full text-left p-1.5 hover:bg-navy/5 rounded-lg text-[10px] font-black text-navy flex items-center gap-2 transition-all"
+                              >
+                                <div className={`p-1.5 rounded-md ${cat.color} shadow-sm`}><cat.icon size={12} /></div>
+                                {cat.label}
                               </button>
                             ))}
+                            <div className="text-[8px] font-black text-gray-400 uppercase p-1 tracking-[0.2em] border-t border-b my-1 flex items-center justify-between">Missions <Briefcase size={8} /></div>
+                            <div className="space-y-1 py-1">
+                              {allAvailableMissions.map(m => (
+                                <button key={m.id} onClick={() => handleAddEntry(weekKey, dayIdx, m.id)} className="w-full text-left p-1.5 hover:bg-navy/5 rounded-lg text-[10px] font-black text-navy flex items-start gap-2 transition-all group/btn">
+                                  <div className="p-1.5 bg-yellow-accent/10 rounded-md group-hover/btn:bg-yellow-accent group-hover/btn:text-navy transition-colors text-yellow-600 shadow-sm shrink-0"><Briefcase size={12} /></div>
+                                  <div className="flex flex-col min-w-0">
+                                    <div className="truncate uppercase tracking-tight font-black">{m.clientName}</div>
+                                    <div className="truncate uppercase text-[8px] text-gray-400 font-bold">{m.name}</div>
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
                           </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="flex-1 flex flex-col items-center justify-center p-12 bg-white rounded-[24px] border border-gray-100 shadow-sm min-h-[400px]">
+          <div className="p-4 bg-gray-50 rounded-full text-gray-400 mb-4 border shadow-inner">
+            <User size={36} className="text-gray-400 stroke-[1.5]" />
+          </div>
+          <h3 className="text-xs font-black text-navy uppercase tracking-[0.2em] mb-1.5">Aucun collaborateur sélectionné</h3>
+          <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tight text-center max-w-sm">
+            Veuillez choisir un collaborateur dans la liste déroulante ci-dessus pour consulter, saisir ou valider ses temps d'activité.
+          </p>
+        </div>
+      )}
 
       {validatingEntry && modalInfo && (
         <div className="fixed inset-0 bg-navy/80 backdrop-blur-md z-[1000] flex items-center justify-center p-4">
