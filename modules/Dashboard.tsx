@@ -597,25 +597,36 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
     });
 
     const badWeatherMissions: any[] = [];
-    filteredMissions.forEach(m => {
-      const missionPlanning = planning.filter(p => p.missionId === m.id);
-      const badWeatherCollabIds = new Set(
-        missionPlanning
-          .filter(p => p.weather === 'rain' || p.weather === 'storm')
-          .map(p => p.collaboratorId || p.userId)
-      );
-      
-      badWeatherCollabIds.forEach(collabId => {
-        const collab = collaborators.find(c => c.id === collabId);
-        if (!collab || !isOperationalCollaborator(collab)) return;
+    const processedWeatherUsers = new Set<string>();
 
-        const collabName = `${collab.firstName} ${collab.lastName}`;
-        badWeatherMissions.push({
-          id: `badweather-${m.id}-${collabId}`,
-          clientName: m.clientName,
-          name: `${m.name} (${collabName})`,
-          weather: 'storm'
-        });
+    filteredMissions.forEach(m => {
+      if (m.status !== MissionStatus.EN_COURS) return;
+      
+      const missionPlanning = planning.filter(p => p.missionId === m.id);
+      const tempBadWeatherEntries = missionPlanning.filter(p => p.weather && ['cloud', 'rain', 'storm'].includes(p.weather));
+      
+      // Trier par date du changement de statut pour avoir la version la plus récente en premier
+      const sortedEntries = [...tempBadWeatherEntries].sort((a, b) => {
+        const dateA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+        const dateB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+        return dateB - dateA;
+      });
+      
+      sortedEntries.forEach(entry => {
+        const collabId = entry.collaboratorId || entry.userId;
+        const collab = collaborators.find(c => c.id === collabId);
+        if (collab && isOperationalCollaborator(collab) && !processedWeatherUsers.has(`${m.id}-${collab.id}`)) {
+          badWeatherMissions.push({
+            id: `badweather-${m.id}-${collab.id}`,
+            clientName: m.clientName,
+            missionName: m.name,
+            collabFirstName: collab.firstName,
+            collabLastName: collab.lastName,
+            weather: entry.weather,
+            updatedAt: entry.updatedAt
+          });
+          processedWeatherUsers.add(`${m.id}-${collab.id}`);
+        }
       });
     });
     return { lowMargin, noStaffing, lateTimesheets, lowMoodConsultants, badWeatherMissions };
@@ -1001,18 +1012,52 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
                     <span className="bg-white/15 px-2.5 py-0.5 rounded-lg text-white font-mono text-[10px]">{list.length}</span>
                   </div>
                   <div className="space-y-3.5">
-                    {list.length === 0 ? <p className="text-[11px] text-white/60 font-bold uppercase italic text-center py-2">Aucune alerte</p> : list.slice(0, 12).map((item: any, idx: number) => (
-                      <div key={idx} className="flex flex-col border-l-2 border-yellow-accent pl-3 py-1 hover:bg-white/5 rounded-r transition-colors">
-                        <p className="text-xs font-black text-white uppercase truncate tracking-tight">
-                          {key === 'lowMargin' ? item.mission.clientName : (key === 'noStaffing' || key === 'badWeatherMissions' || key === 'lowMoodConsultants' ? item.clientName : `${item.firstName} ${item.lastName}`)}
-                        </p>
-                        <p className="text-[10px] text-white font-bold uppercase truncate mt-1">
-                          {key === 'lowMargin' ? `${Math.round(item.margin)}% marge` : 
-                           (key === 'noStaffing' || key === 'badWeatherMissions' ? item.name : 
-                            (key === 'lowMoodConsultants' ? `${item.firstName} ${item.lastName} ${item.sentiment}${formatMoodDate(item.updatedAt)}` : item.grade))}
-                        </p>
-                      </div>
-                    ))}
+                    {list.length === 0 ? (
+                      <p className="text-[11px] text-white/60 font-bold uppercase italic text-center py-2">Aucune alerte</p>
+                    ) : (
+                      list.slice(0, 12).map((item: any, idx: number) => {
+                        let line1: React.ReactNode = '';
+                        let line2: React.ReactNode = '';
+                        let isLine2Bold = true;
+
+                        if (key === 'lowMoodConsultants') {
+                          line1 = `${item.firstName} ${item.lastName} ${item.sentiment}${formatMoodDate(item.updatedAt)}`;
+                          line2 = `${item.clientName} / ${item.missionName}`;
+                          isLine2Bold = false;
+                        } else if (key === 'badWeatherMissions') {
+                          line1 = `${item.clientName} / ${item.missionName}`;
+                          const emoji = item.weather === 'cloud' ? '☁️' : item.weather === 'rain' ? '🌧️' : item.weather === 'storm' ? '⛈️' : '';
+                          line2 = (
+                            <span className="inline-flex items-center gap-1.5 align-middle">
+                              <span>{item.collabFirstName} {item.collabLastName}</span>
+                              {emoji && <span className="text-[18px] leading-none inline-block select-none transform hover:scale-110 transition-transform">{emoji}</span>}
+                              <span>{formatMoodDate(item.updatedAt)}</span>
+                            </span>
+                          );
+                          isLine2Bold = false;
+                        } else if (key === 'lowMargin') {
+                          line1 = item.mission?.clientName || '';
+                          line2 = `${Math.round(item.margin)}% marge`;
+                        } else if (key === 'noStaffing') {
+                          line1 = item.clientName || '';
+                          line2 = item.name || '';
+                        } else {
+                          line1 = `${item.firstName} ${item.lastName}`;
+                          line2 = item.grade || '';
+                        }
+
+                        return (
+                          <div key={idx} className="flex flex-col border-l-2 border-yellow-accent pl-3 py-1 hover:bg-white/5 rounded-r transition-colors">
+                            <p className="text-xs font-black text-white uppercase truncate tracking-tight">
+                              {line1}
+                            </p>
+                            <p className={`text-[10px] text-white uppercase truncate mt-1 ${isLine2Bold ? 'font-bold' : 'font-normal'}`}>
+                              {line2}
+                            </p>
+                          </div>
+                        );
+                      })
+                    )}
                   </div>
                 </div>
                 <div className={`h-[165px] p-5 rounded-3xl border transition-all flex flex-col items-center justify-center gap-3 cursor-help ${list.length > 0 ? `${config.border} ${config.bg} hover:shadow-lg hover:scale-[1.02]` : 'border-gray-50 bg-gray-50/50 text-gray-300'}`}>

@@ -353,7 +353,7 @@ const Availability: React.FC<AvailabilityProps> = ({ state, updateState }) => {
       sentiment: tempSentiment, 
       weather: tempWeather, 
       comment: tempComment,
-      updatedAt: p.sentiment !== tempSentiment ? nowStr : (p.updatedAt || nowStr)
+      updatedAt: (p.sentiment !== tempSentiment || p.weather !== tempWeather) ? nowStr : (p.updatedAt || nowStr)
     } : p);
     updateState({ planning: updatedPlanning });
     
