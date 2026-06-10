@@ -197,7 +197,7 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
 
         const expense: ManualExpense = {
           id: autoId,
-          label: `[${resType === 'f' ? 'FREE' : 'SST'}] ${label} (${mission.clientName})`,
+          label: `${mission.clientName} / ${label} / ${mission.name}`,
           categoryId,
           familyId,
           monthlyAmounts: {},
@@ -223,6 +223,9 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
       mission.freelanceStaffing?.forEach(f => processResource(f.id, `${f.firstName} ${f.lastName}`, 'f'));
       mission.subcontractorStaffing?.forEach(s => processResource(s.id, s.entity, 's'));
     });
+
+    // Classer systématiquement en ordre alphabétique par nom Client (qui commence chaque label d'une dépense automatique)
+    combined.sort((a, b) => a.label.localeCompare(b.label, 'fr', { sensitivity: 'base' }));
 
     storedExpenses.filter(e => !e.id.startsWith('auto-')).forEach(e => combined.push(e));
 
@@ -962,7 +965,6 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
                                         />
                                      </div>
                                      {!isGlobalView && !isAuto && <button type="button" onClick={() => handleDeleteExpenseRow(exp.id)} className="p-1 hover:text-red-500 text-gray-300 transition-colors" title="Supprimer la ligne"><Trash2 size={12} /></button>}
-                                     {isAuto && <span className="text-[8px] font-black uppercase text-blue-400 tracking-tighter">Automatique (Staffing)</span>}
                                   </td>
                                   {MONTHS.map((m, idx) => {
                                     const val = exp.monthlyAmounts?.[m.id] || 0;
