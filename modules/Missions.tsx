@@ -13,7 +13,11 @@ import {
   HandCoins,
   ClipboardList,
   Target,
-  User as UserIcon
+  User as UserIcon,
+  Lock,
+  Unlock,
+  ShieldCheck,
+  ShieldAlert
 } from 'lucide-react';
 import { 
   AppState, Mission, Country, MissionStatus, BillingMode, 
@@ -77,6 +81,81 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
   
   const [missionToDelete, setMissionToDelete] = useState<string | null>(null);
   const [missionSearch, setMissionSearch] = useState('');
+
+  // Access control for editing/creation/deletion under code 'adminOP'
+  const [isMissionsAdminGranted, setIsMissionsAdminGranted] = useState<boolean>(() => {
+    return localStorage.getItem('optimus_admin_access_granted') === 'true';
+  });
+  const [pendingAction, setPendingAction] = useState<{ type: 'add' | 'edit' | 'delete'; data?: any } | null>(null);
+  const [passcode, setPasscode] = useState('');
+  const [passcodeError, setPasscodeError] = useState(false);
+
+  const handlePasscodeSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (passcode.trim() === 'adminOP') {
+      setIsMissionsAdminGranted(true);
+      setPasscodeError(false);
+      setPasscode('');
+      
+      const action = pendingAction;
+      setPendingAction(null); // Close the verification modal
+      
+      if (action) {
+        if (action.type === 'add') {
+          setEditingMission({ 
+            name: '', 
+            clientName: '', 
+            billingMode: BillingMode.FORFAIT, 
+            status: MissionStatus.EN_COURS, 
+            startDate: format(new Date(), 'yyyy-MM-dd'), 
+            endDate: format(new Date(), 'yyyy-MM-dd'), 
+            country: Country.FRANCE, 
+            type: MISSION_TYPES[0], 
+            typology: TYPOLOGIES[0], 
+            managerCollaboratorId: state.collaborators[0]?.id || '',
+            forfaitAmountCurrentFY: 0, 
+            forfaitAmountNextFY: 0, 
+            successFeesCurrentFY: 0, 
+            successFeesNextFY: 0 
+          });
+        } else if (action.type === 'delete' && action.data) {
+          setMissionToDelete(action.data);
+        }
+      }
+    } else {
+      setPasscodeError(true);
+      setPasscode('');
+    }
+  };
+
+  const handleCancelPasscode = () => {
+    setPendingAction(null);
+    setPasscode('');
+    setPasscodeError(false);
+  };
+
+  const handleNewMissionClick = () => {
+    if (isMissionsAdminGranted) {
+      setEditingMission({ 
+        name: '', 
+        clientName: '', 
+        billingMode: BillingMode.FORFAIT, 
+        status: MissionStatus.EN_COURS, 
+        startDate: format(new Date(), 'yyyy-MM-dd'), 
+        endDate: format(new Date(), 'yyyy-MM-dd'), 
+        country: Country.FRANCE, 
+        type: MISSION_TYPES[0], 
+        typology: TYPOLOGIES[0], 
+        managerCollaboratorId: state.collaborators[0]?.id || '',
+        forfaitAmountCurrentFY: 0, 
+        forfaitAmountNextFY: 0, 
+        successFeesCurrentFY: 0, 
+        successFeesNextFY: 0 
+      });
+    } else {
+      setPendingAction({ type: 'add' });
+    }
+  };
   
   const actualFYStr = useMemo(() => getFiscalYear(new Date()), []);
   const actualYear = parseInt(actualFYStr.replace('FY', ''));
@@ -458,22 +537,7 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
                   <span className="bg-navy/10 text-navy px-2 py-0.5 rounded-full text-[10px] font-bold">{processedMissions.length}</span>
                 </div>
                 <div className="md:hidden">
-                   <button onClick={() => setEditingMission({ 
-                    name: '', 
-                    clientName: '', 
-                    billingMode: BillingMode.FORFAIT, 
-                    status: MissionStatus.EN_COURS, 
-                    startDate: format(new Date(), 'yyyy-MM-dd'), 
-                    endDate: format(new Date(), 'yyyy-MM-dd'), 
-                    country: Country.FRANCE, 
-                    type: MISSION_TYPES[0], 
-                    typology: TYPOLOGIES[0], 
-                    managerCollaboratorId: state.collaborators[0]?.id || '',
-                    forfaitAmountCurrentFY: 0, 
-                    forfaitAmountNextFY: 0, 
-                    successFeesCurrentFY: 0, 
-                    successFeesNextFY: 0 
-                  })} className="bg-navy text-white p-2 rounded-lg shadow-md active:scale-95"><Plus size={18} /></button>
+                   <button onClick={handleNewMissionClick} className="bg-navy text-white p-2 rounded-lg shadow-md active:scale-95"><Plus size={18} /></button>
                 </div>
               </div>
               <div className="relative w-full sm:w-48">
@@ -515,22 +579,7 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
                 </div>
               </div>
               
-              <button onClick={() => setEditingMission({ 
-                name: '', 
-                clientName: '', 
-                billingMode: BillingMode.FORFAIT, 
-                status: MissionStatus.EN_COURS, 
-                startDate: format(new Date(), 'yyyy-MM-dd'), 
-                endDate: format(new Date(), 'yyyy-MM-dd'), 
-                country: Country.FRANCE, 
-                type: MISSION_TYPES[0], 
-                typology: TYPOLOGIES[0], 
-                managerCollaboratorId: state.collaborators[0]?.id || '',
-                forfaitAmountCurrentFY: 0, 
-                forfaitAmountNextFY: 0, 
-                successFeesCurrentFY: 0, 
-                successFeesNextFY: 0 
-              })} className="hidden md:flex bg-navy text-white px-4 py-2 rounded-lg text-sm font-bold items-center gap-2 hover:bg-navy/90 transition-all shadow-md active:scale-95 shrink-0"><Plus size={16} /> Nouvelle Mission</button>
+              <button onClick={handleNewMissionClick} className="hidden md:flex bg-navy text-white px-4 py-2 rounded-lg text-sm font-bold items-center gap-2 hover:bg-navy/90 transition-all shadow-md active:scale-95 shrink-0"><Plus size={16} /> Nouvelle Mission</button>
             </div>
           </div>
         </div>
@@ -613,7 +662,14 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
                       }`}>{m.status}</span>
                     </td>
                     <td className="p-4 text-right border-b group-last:border-0">
-                        <button onClick={(e) => { e.stopPropagation(); setMissionToDelete(m.id); }} className="p-2 text-red-400 hover:text-red-700 hover:bg-red-50 rounded-lg transition-all"><Trash2 size={18} /></button>
+                        <button onClick={(e) => { 
+                          e.stopPropagation(); 
+                          if (isMissionsAdminGranted) {
+                            setMissionToDelete(m.id); 
+                          } else {
+                            setPendingAction({ type: 'delete', data: m.id });
+                          }
+                        }} className="p-2 text-red-400 hover:text-red-700 hover:bg-red-50 rounded-lg transition-all"><Trash2 size={18} /></button>
                     </td>
                   </tr>
                 );
@@ -627,11 +683,39 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
         <div className="fixed inset-0 bg-navy/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl overflow-hidden flex flex-col h-[90vh] animate-in zoom-in duration-200 border border-gray-100">
             <div className="p-6 bg-navy text-white flex justify-between items-center shrink-0">
-              <h3 className="text-xl font-black uppercase tracking-tight">{editingMission.id ? 'Editer la mission' : 'Nouvelle Mission'}</h3>
+              <h3 className="text-xl font-black uppercase tracking-tight">{editingMission.id ? 'Détails de la mission' : 'Nouvelle Mission'}</h3>
               <button onClick={() => setEditingMission(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={24} /></button>
             </div>
 
+            {!isMissionsAdminGranted && (
+              <div className="bg-amber-50 border-b border-amber-200 px-6 py-3.5 flex flex-col sm:flex-row items-center justify-between text-amber-800 text-[11px] font-bold gap-4 shrink-0">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle size={16} className="text-amber-600 shrink-0" />
+                  <span>MODE LECTURE : Vous pouvez consulter la mission. Saisir le code de sécurité pour déverrouiller l'édition.</span>
+                </div>
+                <button 
+                  type="button" 
+                  onClick={() => setPendingAction({ type: 'edit' })} 
+                  className="px-4 py-1.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-all font-black uppercase text-[9px] tracking-wider shadow-sm flex items-center gap-1.5 shrink-0"
+                >
+                  <Lock size={12} /> Déverrouiller les modifications
+                </button>
+              </div>
+            )}
+            {isMissionsAdminGranted && (
+              <div className="bg-green-50 border-b border-green-200 px-6 py-3.5 flex flex-col sm:flex-row items-center justify-between text-green-800 text-[11px] font-bold gap-4 shrink-0">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck size={16} className="text-green-600 shrink-0" />
+                  <span>MODE ÉDITION ACTIF : Vous disposez des droits d'ajout, de modification et de suppression.</span>
+                </div>
+                <div className="text-[9px] bg-green-200/50 text-green-800 px-2.5 py-1 rounded-md font-black uppercase tracking-wider flex items-center gap-1">
+                  <Unlock size={10} /> Accès d’édition déverrouillé
+                </div>
+              </div>
+            )}
+
             <form onSubmit={handleSaveMission} className="flex-1 overflow-y-auto p-8 space-y-10 no-scrollbar">
+              <fieldset disabled={!isMissionsAdminGranted} className="space-y-10 contents">
               <section className="grid grid-cols-1 md:grid-cols-3 gap-6 p-6 bg-gray-50 rounded-2xl border border-gray-200 shadow-inner">
                 <div className="md:col-span-3 border-b border-gray-200 pb-2 mb-2 flex items-center justify-between">
                   <h4 className="font-black text-[10px] text-navy uppercase tracking-widest flex items-center gap-2"><Briefcase size={16} className="text-yellow-accent" /> Informations Générales</h4>
@@ -986,9 +1070,17 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
                 </div>
               </section>
 
+              </fieldset>
+
               <div className="sticky bottom-[-32px] bg-white pt-6 pb-4 border-t shadow-[0_-10px_20px_rgba(0,0,0,0.02)] flex justify-end gap-4 shrink-0 z-30">
-                <button type="button" onClick={() => setEditingMission(null)} className="px-8 py-3.5 border border-gray-200 rounded-2xl font-black text-gray-400 uppercase text-[10px] tracking-widest hover:bg-gray-50 transition-all">Annuler</button>
-                <button type="submit" className="px-10 py-3.5 bg-navy text-white rounded-2xl font-black shadow-xl flex items-center gap-3 hover:bg-navy/90 transition-all active:scale-95 group"><Save size={20} className="text-yellow-accent group-hover:scale-110 transition-transform" /> Sauvegarder Mission & Staffing</button>
+                <button type="button" onClick={() => setEditingMission(null)} className="px-8 py-3.5 border border-gray-200 rounded-2xl font-black text-gray-400 uppercase text-[10px] tracking-widest hover:bg-gray-50 transition-all">
+                  {isMissionsAdminGranted ? 'Annuler' : 'Fermer'}
+                </button>
+                {isMissionsAdminGranted ? (
+                  <button type="submit" className="px-10 py-3.5 bg-navy text-white rounded-2xl font-black shadow-xl flex items-center gap-3 hover:bg-navy/90 transition-all active:scale-95 group"><Save size={20} className="text-yellow-accent group-hover:scale-110 transition-transform" /> Sauvegarder Mission & Staffing</button>
+                ) : (
+                  <button type="button" onClick={() => setPendingAction({ type: 'edit' })} className="px-10 py-3.5 bg-amber-600 text-white rounded-2xl font-black shadow-xl flex items-center gap-3 hover:bg-amber-700 transition-all active:scale-95 group"><Lock size={20} className="text-white group-hover:scale-110 transition-transform" /> Activer l’édition</button>
+                )}
               </div>
             </form>
           </div>
@@ -1024,6 +1116,67 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Security code check dialog */}
+      {pendingAction && (
+        <div className="fixed inset-0 bg-navy/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 animate-in zoom-in duration-200 border border-gray-100 space-y-4">
+            <div className="text-center space-y-2">
+              <div className="w-12 h-12 bg-yellow-accent/10 text-yellow-600 rounded-full flex items-center justify-center mx-auto">
+                <Lock size={24} />
+              </div>
+              <h3 className="text-lg font-black text-navy uppercase tracking-tight">Accès Sécurisé</h3>
+              <p className="text-gray-500 text-xs font-bold uppercase tracking-tight leading-relaxed">
+                {pendingAction.type === 'add' && "La création d'une nouvelle mission nécessite un code de sécurité."}
+                {pendingAction.type === 'edit' && "La modification d'une mission nécessite un code de sécurité."}
+                {pendingAction.type === 'delete' && "La suppression d'une mission nécessite un code de sécurité."}
+              </p>
+            </div>
+            <form onSubmit={handlePasscodeSubmit} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block pl-1">
+                  Code d'autorisation
+                </label>
+                <input 
+                  type="password"
+                  placeholder="Saisir le code..."
+                  autoFocus
+                  className={`w-full border-2 rounded-xl px-4 py-3 font-bold text-sm text-navy focus:ring-2 outline-none transition-all ${
+                    passcodeError 
+                      ? 'border-red-200 focus:ring-red-200 bg-red-50/10' 
+                      : 'border-transparent bg-brand-gray/50 focus:ring-yellow-accent'
+                  }`}
+                  value={passcode}
+                  onChange={e => {
+                    setPasscode(e.target.value);
+                    if (passcodeError) setPasscodeError(false);
+                  }}
+                />
+                {passcodeError && (
+                  <span className="text-red-500 text-[9px] font-black uppercase tracking-wider block pl-1 mt-1">
+                    Code incorrect, veuillez réessayer.
+                  </span>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <button 
+                  type="button"
+                  onClick={handleCancelPasscode}
+                  className="flex-1 py-3 border border-gray-200 rounded-xl font-black text-gray-400 uppercase text-[10px] tracking-wider hover:bg-gray-50 transition-colors"
+                >
+                  Annuler
+                </button>
+                <button 
+                  type="submit"
+                  className="flex-1 py-3 bg-navy text-white rounded-xl font-black uppercase text-[10px] tracking-wider hover:bg-navy/90 transition-colors shadow-lg shadow-navy/10"
+                >
+                  Valider
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
