@@ -89,7 +89,7 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
   const [typologyFilter, setTypologyFilter] = useState<string>('All');
   const [billingModeFilter, setBillingModeFilter] = useState<string>('All');
   const [managerFilter, setManagerFilter] = useState<string>('All');
-  const [statusFilter, setStatusFilter] = useState<string>('Active');
+  const [statusFilter, setStatusFilter] = useState<string>('All');
 
   const [missionSortConfig, setMissionSortConfig] = useState<{ key: MissionSortKey; direction: 'asc' | 'desc' }>({ 
     key: 'clientName', 
@@ -485,13 +485,13 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
                   <option value="All">Typologies</option>
                   {TYPOLOGIES.map(t => <option value={t} key={t}>{t}</option>)}
                 </select>
-                <select className="text-[10px] font-bold border rounded-lg px-2 py-1 outline-none bg-white text-navy uppercase tracking-tighter shrink-0" value={billingModeFilter} onChange={e => setBillingModeFilter(e.target.value)}>
-                  <option value="All">Modes</option>
-                  {Object.values(BillingMode).map(m => <option key={m} value={m}>{m}</option>)}
+                <select className="text-[10px] font-bold border rounded-lg px-2 py-1 outline-none bg-white text-navy uppercase tracking-tighter shrink-0" value={managerFilter} onChange={e => setManagerFilter(e.target.value)}>
+                  <option value="All">Responsables</option>
+                  {state.collaborators.map(u => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
                 </select>
                 <select className="text-[10px] font-bold border rounded-lg px-2 py-1 outline-none bg-white text-navy uppercase tracking-tighter shrink-0" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-                  <option value="All">Statuts</option>
-                  <option value="Active">En cours</option>
+                  <option value="All">Statut</option>
+                  <option value="Active">En cours et Non démarrée</option>
                   {Object.values(MissionStatus).map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
