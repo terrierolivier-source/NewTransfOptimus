@@ -477,7 +477,8 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
     const currentStatus = (existingIdx !== -1 ? bucket[existingIdx].monthlyStatuses?.[monthId] : undefined) || 'NONE';
     let nextStatus: ExpenseStatus = 'NONE';
     if (currentStatus === 'NONE') nextStatus = 'FNP';
-    else if (currentStatus === 'FNP') nextStatus = 'VALIDATED';
+    else if (currentStatus === 'FNP') nextStatus = 'RECEIVED';
+    else if (currentStatus === 'RECEIVED') nextStatus = 'VALIDATED';
     else nextStatus = 'NONE';
 
     if (existingIdx !== -1) {
@@ -853,8 +854,18 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
              <div className="flex items-center gap-2"><TrendingUp size={18} className="text-navy" /><h3 className="font-black text-xs text-navy uppercase tracking-widest">Dépenses {globalCountry} ({globalFY})</h3></div>
              <div className="flex items-center gap-4">
                 <div className="flex items-center gap-3 text-[9px] font-black uppercase bg-white border px-3 py-1 rounded-full shadow-inner">
-                   <div className="flex items-center gap-1"><div className="w-2 h-2 rounded bg-amber-500/20 border border-amber-500"></div> <span>FNP</span></div>
-                   <div className="flex items-center gap-1"><div className="w-2 h-2 rounded bg-emerald-500/20 border border-emerald-500"></div> <span>Validé</span></div>
+                   <div className="flex items-center gap-1">
+                     <div className="w-2.5 h-2.5 rounded-full bg-white border border-gray-400 shadow-sm"></div>
+                     <span>FNP</span>
+                   </div>
+                   <div className="flex items-center gap-1">
+                     <div className="w-2.5 h-2.5 rounded-full bg-amber-500 border border-amber-600 shadow-sm"></div>
+                     <span>Facture parvenue</span>
+                   </div>
+                   <div className="flex items-center gap-1">
+                     <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 border border-emerald-600 shadow-sm"></div>
+                     <span>Validé Finance</span>
+                   </div>
                 </div>
                 {isGlobalView && <span className="bg-amber-100 text-amber-700 px-3 py-1 rounded-full text-[10px] font-black uppercase">Lecture seule (Global)</span>}
              </div>
@@ -929,12 +940,13 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
                                     
                                     const statusStyles = {
                                       NONE: 'bg-transparent',
-                                      FNP: 'bg-amber-500/10',
+                                      FNP: 'bg-transparent',
+                                      RECEIVED: 'bg-amber-500/10',
                                       VALIDATED: 'bg-emerald-500/10'
                                     };
 
                                     return (
-                                      <td key={idx} className={`p-1.5 border-r relative group/cell transition-colors duration-200 ${statusStyles[status]}`}>
+                                      <td key={idx} className={`p-1.5 border-r relative group/cell transition-colors duration-200 ${statusStyles[status] || 'bg-transparent'}`}>
                                         <div className="flex items-center h-full relative z-10">
                                           {!isGlobalView && (
                                             <button 
@@ -948,17 +960,30 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
                                           <input 
                                             type="text" 
                                             disabled={isGlobalView} 
-                                            className={`w-full bg-transparent text-right text-[10px] font-bold focus:outline-none px-1 ${val < 0 ? 'text-emerald-600' : ''} ${status === 'VALIDATED' ? 'text-emerald-700' : status === 'FNP' ? 'text-amber-700' : ''} ${isAuto ? 'text-blue-700 font-black' : ''}`} 
+                                            className={`w-full bg-transparent text-right text-[10px] font-bold focus:outline-none px-1 ${val < 0 ? 'text-emerald-600' : ''} ${status === 'VALIDATED' ? 'text-emerald-700' : status === 'RECEIVED' ? 'text-amber-700' : status === 'FNP' ? 'text-gray-700' : ''} ${isAuto ? 'text-blue-700 font-black' : ''}`} 
                                             value={val === 0 ? '- €' : formatCurrency(val)} 
                                             onChange={(e) => handleUpdateExpenseAmount(exp.id, m.id, e.target.value)} 
                                           />
                                           {!isGlobalView && (isAuto || val !== 0) && (
                                             <button 
                                               onClick={() => handleToggleExpenseStatus(exp.id, m.id)}
-                                              className={`ml-1 p-0.5 rounded transition-all opacity-0 group-hover/cell:opacity-100 ${status === 'VALIDATED' ? 'text-emerald-600 opacity-100' : status === 'FNP' ? 'text-amber-600 opacity-100' : 'text-gray-300 hover:text-navy'}`}
-                                              title={status === 'VALIDATED' ? 'Facture Validée' : status === 'FNP' ? 'FNP (Facture Non Parvenue)' : 'Définir statut'}
+                                              className={`ml-1.5 p-0.5 rounded transition-all flex items-center justify-center shrink-0 ${status !== 'NONE' ? 'opacity-100' : 'opacity-0 group-hover/cell:opacity-100'}`}
+                                              title={
+                                                status === 'VALIDATED' ? 'Validé Finance' : 
+                                                status === 'RECEIVED' ? 'Facture parvenue' : 
+                                                status === 'FNP' ? 'FNP' : 
+                                                'Définir statut'
+                                              }
                                             >
-                                              {status === 'VALIDATED' ? <CheckCircle2 size={12} strokeWidth={3} /> : status === 'FNP' ? <Clock size={12} strokeWidth={3} /> : <FileSearch size={12} />}
+                                              {status === 'VALIDATED' ? (
+                                                <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 border border-emerald-600 shadow-sm" />
+                                              ) : status === 'RECEIVED' ? (
+                                                <div className="w-2.5 h-2.5 rounded-full bg-amber-500 border border-amber-600 shadow-sm" />
+                                              ) : status === 'FNP' ? (
+                                                <div className="w-2.5 h-2.5 rounded-full bg-white border border-gray-400 shadow-sm" />
+                                              ) : (
+                                                <div className="w-2.5 h-2.5 rounded-full border border-dashed border-gray-300 hover:border-navy" />
+                                              )}
                                             </button>
                                           )}
                                         </div>

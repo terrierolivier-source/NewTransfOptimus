@@ -116,7 +116,7 @@ export interface MonthlyBillingOverride {
   comment?: string;
 }
 
-export type ExpenseStatus = 'FNP' | 'VALIDATED' | 'NONE';
+export type ExpenseStatus = 'FNP' | 'RECEIVED' | 'VALIDATED' | 'NONE';
 
 export interface ManualExpense {
   id: string;

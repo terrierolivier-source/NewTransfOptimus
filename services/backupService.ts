@@ -29,6 +29,7 @@ export interface FullBackup {
   };
   technical: {
     legacy_users: any[];
+    control_summary?: any[];
   };
 }
 
