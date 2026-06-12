@@ -65,6 +65,7 @@ const Admin: React.FC<AdminProps> = ({ state, updateState }) => {
   const [editingCollaborator, setEditingCollaborator] = useState<Partial<Collaborator> | null>(null);
   const [collaboratorToDelete, setCollaboratorToDelete] = useState<string | null>(null);
   const [collaboratorSearch, setCollaboratorSearch] = useState('');
+  const [collaboratorStatusFilter, setCollaboratorStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const [collaboratorSortConfig, setCollaboratorSortConfig] = useState<{ key: CollaboratorSortKey; direction: 'asc' | 'desc' }>({ 
     key: 'lastName', 
     direction: 'asc' 
@@ -154,6 +155,9 @@ const Admin: React.FC<AdminProps> = ({ state, updateState }) => {
     if (state.globalCountry !== 'Global') {
       result = result.filter(c => c.country === state.globalCountry);
     }
+    if (collaboratorStatusFilter !== 'all') {
+      result = result.filter(c => collaboratorStatusFilter === 'active' ? c.active : !c.active);
+    }
     if (collaboratorSearch) {
       const term = collaboratorSearch.toLowerCase();
       result = result.filter(c => 
@@ -175,7 +179,7 @@ const Admin: React.FC<AdminProps> = ({ state, updateState }) => {
       return 0;
     });
     return result;
-  }, [state.collaborators, collaboratorSearch, collaboratorSortConfig, state.globalCountry]);
+  }, [state.collaborators, collaboratorSearch, collaboratorStatusFilter, collaboratorSortConfig, state.globalCountry]);
 
   const getInitialCollaborator = (): Partial<Collaborator> => ({
     firstName: '',
@@ -387,9 +391,22 @@ const Admin: React.FC<AdminProps> = ({ state, updateState }) => {
                   />
                 </div>
 
-                {collaboratorSearch !== '' && (
+                <select
+                  value={collaboratorStatusFilter}
+                  onChange={(e) => setCollaboratorStatusFilter(e.target.value as 'all' | 'active' | 'inactive')}
+                  className="text-[10px] font-bold border rounded-lg px-2.5 py-1.5 outline-none bg-white text-navy uppercase tracking-tighter shrink-0 cursor-pointer focus:ring-2 focus:ring-yellow-accent"
+                >
+                  <option value="all">Tous les statuts</option>
+                  <option value="active">Actifs</option>
+                  <option value="inactive">Inactifs</option>
+                </select>
+
+                {(collaboratorSearch !== '' || collaboratorStatusFilter !== 'all') && (
                   <button 
-                    onClick={() => setCollaboratorSearch('')}
+                    onClick={() => {
+                      setCollaboratorSearch('');
+                      setCollaboratorStatusFilter('all');
+                    }}
                     className="flex items-center gap-1.5 px-2 py-1.5 text-[10px] font-bold text-red-500 hover:bg-red-50 rounded-lg transition-colors border border-red-100 uppercase shrink-0"
                   >
                     <FilterX size={12} />
