@@ -360,6 +360,29 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
       ? editingMission.id 
       : crypto.randomUUID();
 
+    const originalMission = state.missions.find(m => m.id === editingMission.id);
+    let updatedOverrides = { ...(editingMission.billingOverrides || {}) };
+
+    if (originalMission) {
+      const actualFYStr = getFiscalYear(new Date());
+      const actualYear = parseInt(actualFYStr.replace('FY', ''));
+      const nextFYStr = `FY${actualYear + 1}`;
+
+      if (
+        editingMission.forfaitAmountCurrentFY !== originalMission.forfaitAmountCurrentFY ||
+        editingMission.successFeesCurrentFY !== originalMission.successFeesCurrentFY
+      ) {
+        delete updatedOverrides[actualFYStr];
+      }
+
+      if (
+        editingMission.forfaitAmountNextFY !== originalMission.forfaitAmountNextFY ||
+        editingMission.successFeesNextFY !== originalMission.successFeesNextFY
+      ) {
+        delete updatedOverrides[nextFYStr];
+      }
+    }
+
     const finalMission: Mission = {
       ...editingMission,
       id: missionId,
@@ -367,6 +390,7 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
         ? editingMission.clientId 
         : crypto.randomUUID(),
       active: true,
+      billingOverrides: updatedOverrides,
       internalStaffing,
       freelanceStaffing,
       subcontractorStaffing
