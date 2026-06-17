@@ -13,7 +13,8 @@ import {
   Rocket,
   ShieldOff,
   Menu,
-  X
+  X,
+  TrendingUp
 } from 'lucide-react';
 import { Country } from '../types';
 
@@ -60,6 +61,7 @@ const Layout: React.FC<LayoutProps> = ({
     { id: 'planning', label: 'Planification', icon: CalendarRange, permission: true },
     { id: 'availability', label: 'Disponibilité', icon: Users, permission: true },
     { id: 'timesheets', label: 'Gestion des temps', icon: Clock, permission: true },
+    { id: 'xsell', label: 'Suivi Xsell', icon: TrendingUp, permission: true },
     { id: 'budget_tracking', label: 'Suivi Budgétaire', icon: BadgeEuro, permission: true },
     { id: 'admin', label: 'Administration', icon: Settings, permission: true },
   ];
