@@ -942,8 +942,7 @@ const XsellOpportunities: React.FC = () => {
     });
     const topOwners = Object.entries(ownerRevenue)
       .map(([name, val]) => ({ name, value: val }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 4);
+      .sort((a, b) => b.value - a.value);
 
     // Top Entity
     const entityRevenue: Record<string, number> = {};
@@ -953,8 +952,7 @@ const XsellOpportunities: React.FC = () => {
     });
     const topEntities = Object.entries(entityRevenue)
       .map(([name, val]) => ({ name, value: val }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 4);
+      .sort((a, b) => b.value - a.value);
 
     return {
       totalCount: list.length,
@@ -1062,13 +1060,13 @@ const XsellOpportunities: React.FC = () => {
         <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between relative overflow-hidden" id="xsell-card-estimated-rev">
           <div className="space-y-1 z-10">
             <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">CA Bénéficiaire Estimé</span>
-            <div className="text-3xl font-black text-emerald-600 truncate">{formatCurrency(metrics.totalEstRevenue)}</div>
+            <div className="text-3xl font-black text-black truncate">{formatCurrency(metrics.totalEstRevenue)}</div>
             <div className="text-[11px] font-bold text-gray-500 flex items-center gap-1.5 mt-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
-              <span>dont {formatCurrency(metrics.epsaRevenue)} Entités Groupe EPSA</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-black inline-block"></span>
+              <span>Entités Groupe EPSA</span>
             </div>
           </div>
-          <div className="absolute right-4 top-4 bg-emerald-50 text-emerald-600 p-3 rounded-full">
+          <div className="absolute right-4 top-4 bg-black/5 text-black p-3 rounded-full">
             <Coins size={20} />
           </div>
         </div>
@@ -1077,13 +1075,13 @@ const XsellOpportunities: React.FC = () => {
         <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between relative overflow-hidden" id="xsell-card-invoiced-trans">
           <div className="space-y-1 z-10">
             <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">CA prév. Transfo à facturer</span>
-            <div className="text-3xl font-black text-indigo-600 truncate">{formatCurrency(metrics.transfoInProgress)}</div>
+            <div className="text-3xl font-black text-emerald-600 truncate">{formatCurrency(metrics.transfoInProgress)}</div>
             <div className="text-[11px] font-bold text-gray-500 flex items-center gap-1.5 mt-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 inline-block"></span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
               <span>mission en cours</span>
             </div>
           </div>
-          <div className="absolute right-4 top-4 bg-indigo-50 text-indigo-600 p-3 rounded-full">
+          <div className="absolute right-4 top-4 bg-emerald-50 text-emerald-600 p-3 rounded-full">
             <Euro size={20} />
           </div>
         </div>
@@ -1092,13 +1090,13 @@ const XsellOpportunities: React.FC = () => {
         <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between relative overflow-hidden" id="xsell-card-savings">
           <div className="space-y-1 z-10">
             <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">CA Transfo facturé</span>
-            <div className="text-3xl font-black text-blue-600 truncate">{formatCurrency(metrics.transfoCompleted)}</div>
+            <div className="text-3xl font-black text-green-500 truncate">{formatCurrency(metrics.transfoCompleted)}</div>
             <div className="text-[11px] font-bold text-gray-500 flex items-center gap-1.5 mt-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block"></span>
+              <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block"></span>
               <span>mission terminée</span>
             </div>
           </div>
-          <div className="absolute right-4 top-4 bg-blue-50 text-blue-600 p-3 rounded-full">
+          <div className="absolute right-4 top-4 bg-green-50 text-green-500 p-3 rounded-full">
             <TrendingUp size={20} />
           </div>
         </div>
@@ -1114,27 +1112,68 @@ const XsellOpportunities: React.FC = () => {
           {Object.keys(metrics.statusCount).length === 0 ? (
             <p className="text-center text-xs text-gray-300 py-6 font-semibold">Aucune donnée disponible</p>
           ) : (
-            <div className="space-y-3 flex-1 overflow-y-auto max-h-[160px] pr-1.5 small-scrollbar">
-              {Object.entries(metrics.statusCount).map(([status, count]) => {
-                const pct = Math.round(((count as number) / (metrics.totalCount || 1)) * 100) || 0;
-                const barColorClass = getStatusProgressBarColor(status);
-                // Extract bg color of the bar for the small indicator dot
-                const dotColorClass = barColorClass.split(' ')[0];
-                return (
-                  <div key={status} className="space-y-1">
-                    <div className="flex justify-between items-center text-[10px] font-bold text-navy tracking-tight">
-                      <span className="truncate flex items-center gap-1.5">
-                        <span className={`w-2 h-2 rounded-full shrink-0 ${dotColorClass}`}></span>
-                        {status}
-                      </span>
-                      <span>{count} ({pct}%)</span>
-                    </div>
-                    <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
-                      <div className={`h-full rounded-full transition-all duration-500 ${barColorClass}`} style={{ width: `${pct}%` }}></div>
-                    </div>
-                  </div>
-                );
-              })}
+            <div className="flex flex-col flex-1 h-[160px] justify-between">
+              {/* Graphic area */}
+              <div className="flex items-end justify-between h-[155px] pb-1 border-b border-gray-100 relative px-1">
+                {/* Y-Axis Guideline grid */}
+                <div className="absolute inset-x-0 bottom-1/4 border-b border-gray-50 border-dashed pointer-events-none"></div>
+                <div className="absolute inset-x-0 bottom-2/4 border-b border-gray-50 border-dashed pointer-events-none"></div>
+                <div className="absolute inset-x-0 bottom-3/4 border-b border-gray-50 border-dashed pointer-events-none"></div>
+
+                {(() => {
+                  const statusesToDisplay = Object.entries(metrics.statusCount)
+                    .filter(([status]) => status !== 'KO' && status !== 'Non renseigné')
+                    .sort((a, b) => a[0].localeCompare(b[0]));
+                  
+                  const maxDisplayCount = Math.max(...statusesToDisplay.map(([_, count]) => count as number), 1);
+
+                  return statusesToDisplay.map(([status, count]) => {
+                    const pct = Math.round(((count as number) / (metrics.totalCount || 1)) * 100) || 0;
+                    const heightPct = ((count as number) / maxDisplayCount) * 100;
+                    const barColorClass = getStatusProgressBarColor(status);
+                    
+                    // Clean up label for short print
+                    const parts = status.split(' - ');
+                    const name = parts[parts.length - 1] || status;
+                    let shortName = name;
+                    if (name.toLowerCase().includes('rdv à venir')) shortName = 'RDV à ven.';
+                    if (name.toLowerCase().includes('rdv réalisé')) shortName = 'RDV réal.';
+                    if (name.toLowerCase().includes('contrat signé')) shortName = 'Contrat';
+                    if (name.toLowerCase().includes('cours')) shortName = 'En cours';
+                    if (name.toLowerCase().includes('terminée')) shortName = 'Terminée';
+
+                    return (
+                      <div key={status} className="flex flex-col items-center flex-1 group relative">
+                        {/* Tooltip on hover */}
+                        <div className="absolute bottom-full mb-2 hidden group-hover:flex flex-col items-center z-30 pointer-events-none">
+                          <div className="bg-navy text-white text-[9px] font-bold py-1 px-2 rounded shadow-lg whitespace-nowrap">
+                            {status}: <span className="font-extrabold text-amber-300">{count}</span> ({pct}%)
+                          </div>
+                          <div className="w-1.5 h-1.5 bg-navy rotate-45 -mt-0.5"></div>
+                        </div>
+
+                        {/* Direct count label on top of the bar */}
+                        <span className="text-[10px] font-extrabold text-navy/80 mb-1 transition-all group-hover:scale-110 group-hover:text-navy">
+                          {count}
+                        </span>
+
+                        {/* Bar body */}
+                        <div className="w-7 sm:w-9 bg-gray-50/50 rounded-t-md relative overflow-hidden flex items-end h-[105px] border border-gray-100/50 hover:border-gray-200 hover:shadow-xs transition-all duration-200">
+                          <div 
+                            className={`w-full rounded-t-sm transition-all duration-700 ease-out origin-bottom ${barColorClass}`}
+                            style={{ height: `${heightPct}%` }}
+                          ></div>
+                        </div>
+
+                        {/* Short axis text label */}
+                        <span className="text-[8px] font-black tracking-tight text-gray-400 mt-1.5 text-center leading-none truncate max-w-full group-hover:text-navy transition-colors">
+                          {shortName}
+                        </span>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
             </div>
           )}
         </div>
