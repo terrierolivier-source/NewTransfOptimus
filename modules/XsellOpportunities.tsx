@@ -321,7 +321,9 @@ const XsellOpportunities: React.FC = () => {
   // Format Helper for Currencies
   const formatCurrency = (val: number | null | undefined) => {
     if (val === null || val === undefined) return '-';
-    return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(Math.round(val));
+    const rounded = Math.round(val);
+    const formattedNum = String(rounded).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+    return `${formattedNum}\u00A0€`;
   };
 
   const formatPercentage = (val: string | null | undefined) => {
@@ -916,6 +918,22 @@ const XsellOpportunities: React.FC = () => {
       statusCount[s] = (statusCount[s] || 0) + 1;
     });
 
+    const transfoInProgress = list
+      .filter(o => o.status === '04 - mission en cours')
+      .reduce((sum, o) => sum + (o.amount_to_invoice || 0), 0);
+    const transfoCompleted = list
+      .filter(o => {
+        const isCompleted = o.status === '05 - mission terminée';
+        const transValue = (o.transfo_invoiced || '').trim().toLowerCase();
+        const isFactured = transValue.includes('factur') || transValue === 'oui';
+        return isCompleted && isFactured;
+      })
+      .reduce((sum, o) => sum + (o.amount_to_invoice || 0), 0);
+
+    const epsaRevenue = list
+      .filter(o => (o.beneficiary_entity || '').toLowerCase().includes('epsa'))
+      .reduce((sum, o) => sum + (o.estimated_revenue || 0), 0);
+
     // Top Owner
     const ownerRevenue: Record<string, number> = {};
     list.forEach(o => {
@@ -945,7 +963,12 @@ const XsellOpportunities: React.FC = () => {
       totalSavings,
       statusCount,
       topOwners,
-      topEntities
+      topEntities,
+      countInProgress: statusCount['04 - mission en cours'] || 0,
+      countCompleted: statusCount['05 - mission terminée'] || 0,
+      transfoInProgress,
+      transfoCompleted,
+      epsaRevenue
     };
   }, [filteredAndSortedOpportunities]);
 
@@ -1004,15 +1027,34 @@ const XsellOpportunities: React.FC = () => {
       )}
 
       {/* Bento Analytics Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4" id="xsell-analytics-grid">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4" id="xsell-analytics-grid">
         {/* Total Metric Card */}
         <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between relative overflow-hidden" id="xsell-card-total">
           <div className="space-y-1 z-10">
             <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">Total Opportunités</span>
             <div className="text-4xl font-black text-navy">{metrics.totalCount}</div>
+            <div className="text-[11px] font-bold text-gray-500 flex items-center gap-1.5 mt-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block"></span>
+              <span>dont {metrics.statusCount['KO'] || 0} KO</span>
+            </div>
           </div>
           <div className="absolute right-4 top-4 bg-navy/5 text-navy p-3 rounded-full">
             <Briefcase size={20} />
+          </div>
+        </div>
+
+        {/* Missions En Cours & Terminées Card */}
+        <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between relative overflow-hidden" id="xsell-card-in-progress">
+          <div className="space-y-1 z-10">
+            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">Missions En Cours</span>
+            <div className="text-4xl font-black text-amber-600">{metrics.countInProgress}</div>
+            <div className="text-[11px] font-bold text-gray-500 flex items-center gap-1.5 mt-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block"></span>
+              <span>{metrics.countCompleted} terminées</span>
+            </div>
+          </div>
+          <div className="absolute right-4 top-4 bg-amber-50 text-amber-600 p-3 rounded-full">
+            <Layers size={20} />
           </div>
         </div>
 
@@ -1021,6 +1063,10 @@ const XsellOpportunities: React.FC = () => {
           <div className="space-y-1 z-10">
             <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">CA Bénéficiaire Estimé</span>
             <div className="text-3xl font-black text-emerald-600 truncate">{formatCurrency(metrics.totalEstRevenue)}</div>
+            <div className="text-[11px] font-bold text-gray-500 flex items-center gap-1.5 mt-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
+              <span>dont {formatCurrency(metrics.epsaRevenue)} Entités Groupe EPSA</span>
+            </div>
           </div>
           <div className="absolute right-4 top-4 bg-emerald-50 text-emerald-600 p-3 rounded-full">
             <Coins size={20} />
@@ -1030,8 +1076,12 @@ const XsellOpportunities: React.FC = () => {
         {/* Invoiced Transfo Card */}
         <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between relative overflow-hidden" id="xsell-card-invoiced-trans">
           <div className="space-y-1 z-10">
-            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">À Facturer Transfo</span>
-            <div className="text-3xl font-black text-indigo-600 truncate">{formatCurrency(metrics.totalInvoiceTransfo)}</div>
+            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">CA prév. Transfo à facturer</span>
+            <div className="text-3xl font-black text-indigo-600 truncate">{formatCurrency(metrics.transfoInProgress)}</div>
+            <div className="text-[11px] font-bold text-gray-500 flex items-center gap-1.5 mt-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 inline-block"></span>
+              <span>mission en cours</span>
+            </div>
           </div>
           <div className="absolute right-4 top-4 bg-indigo-50 text-indigo-600 p-3 rounded-full">
             <Euro size={20} />
@@ -1041,8 +1091,12 @@ const XsellOpportunities: React.FC = () => {
         {/* Client Savings Card */}
         <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between relative overflow-hidden" id="xsell-card-savings">
           <div className="space-y-1 z-10">
-            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">Économies Client Estimées</span>
-            <div className="text-3xl font-black text-blue-600 truncate">{formatCurrency(metrics.totalSavings)}</div>
+            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">CA Transfo facturé</span>
+            <div className="text-3xl font-black text-blue-600 truncate">{formatCurrency(metrics.transfoCompleted)}</div>
+            <div className="text-[11px] font-bold text-gray-500 flex items-center gap-1.5 mt-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block"></span>
+              <span>mission terminée</span>
+            </div>
           </div>
           <div className="absolute right-4 top-4 bg-blue-50 text-blue-600 p-3 rounded-full">
             <TrendingUp size={20} />
