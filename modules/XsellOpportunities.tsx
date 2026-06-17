@@ -53,6 +53,88 @@ export interface XsellOpportunity {
   updated_at?: string;
 }
 
+const parseRefacPercentageToRatio = (val: string | null | undefined): number => {
+  if (!val) return 0;
+  const clean = String(val).trim().replace(',', '.');
+  if (!clean || clean.toLowerCase() === 'na') return 0;
+  
+  const hasPercent = clean.includes('%');
+  const numValue = parseFloat(clean.replace('%', ''));
+  if (isNaN(numValue)) return 0;
+  
+  if (hasPercent) {
+    return numValue / 100;
+  }
+  
+  if (numValue > 1) {
+    return numValue / 100;
+  }
+  return numValue;
+};
+
+const getStatusBadgeStyles = (status: string | null | undefined) => {
+  const norm = (status || '').trim();
+  switch (norm) {
+    case '01 - RDV à venir':
+      return 'bg-blue-50 text-blue-700 border-blue-200';
+    case '02 - RDV réalisé':
+      return 'bg-amber-50 text-amber-700 border-amber-200';
+    case '03 - Contrat signé':
+      return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+    case '04 - mission en cours':
+      return 'bg-indigo-50 text-indigo-700 border-indigo-200';
+    case '05 - mission terminée':
+      return 'bg-green-500 text-white border-green-600 font-extrabold shadow-[0_0_8px_rgba(34,197,94,0.5)]';
+    case 'KO':
+      return 'bg-red-50 text-red-700 border-red-200';
+    default:
+      if (norm.includes('cours') || norm.includes('Active')) return 'bg-orange-50 text-orange-700 border-orange-100';
+      if (norm.includes('Gagné') || norm.includes('Signé')) return 'bg-emerald-50 text-emerald-700 border-emerald-100';
+      if (norm.includes('Perdu') || norm === 'KO') return 'bg-red-50 text-red-700 border-red-100';
+      return 'bg-gray-50 text-gray-600 border-gray-100';
+  }
+};
+
+const getStatusProgressBarColor = (status: string | null | undefined) => {
+  const norm = (status || '').trim();
+  switch (norm) {
+    case '01 - RDV à venir':
+      return 'bg-blue-500';
+    case '02 - RDV réalisé':
+      return 'bg-amber-500';
+    case '03 - Contrat signé':
+      return 'bg-emerald-500';
+    case '04 - mission en cours':
+      return 'bg-indigo-500';
+    case '05 - mission terminée':
+      return 'bg-green-500 shadow-[0_0_8px_#22c55e]';
+    case 'KO':
+      return 'bg-red-500';
+    default:
+      if (norm.includes('cours') || norm.includes('Active')) return 'bg-orange-500';
+      if (norm.includes('Gagné') || norm.includes('Signé')) return 'bg-emerald-500';
+      if (norm.includes('Perdu') || norm === 'KO') return 'bg-red-500';
+      return 'bg-navy';
+  }
+};
+
+const getTransfoInvoicedBadgeStyles = (val: string | null | undefined) => {
+  const norm = (val || '').trim();
+  switch (norm) {
+    case '01 - Non prêt à facturer':
+      return 'bg-red-50 text-red-700 border-red-100';
+    case '02 - Prêt à facturer':
+      return 'bg-amber-50 text-amber-700 border-amber-100';
+    case '03 - Facturé':
+      return 'bg-emerald-50 text-emerald-700 border-emerald-100';
+    default:
+      if (norm === 'Oui' || norm === 'Facturé' || norm.includes('Facturé')) {
+        return 'bg-emerald-50 text-emerald-700 border-emerald-100';
+      }
+      return 'bg-red-50 text-red-700 border-red-100';
+  }
+};
+
 const XsellOpportunities: React.FC = () => {
   // DB & State management
   const [opportunities, setOpportunities] = useState<XsellOpportunity[]>([]);
@@ -140,6 +222,101 @@ const XsellOpportunities: React.FC = () => {
   useEffect(() => {
     fetchOpportunities();
   }, []);
+
+  const [collabOptions, setCollabOptions] = useState<string[]>([]);
+
+  useEffect(() => {
+    const fetchCollabs = async () => {
+      try {
+        const { data: usersData } = await supabase.from('users').select('first_name, last_name, grade');
+        const { data: collabsData } = await supabase.from('collaborators').select('first_name, last_name, grade');
+        
+        const combined = [
+          ...(usersData || []).map(u => ({ first_name: u.first_name, last_name: u.last_name, grade: u.grade })),
+          ...(collabsData || []).map(c => ({ first_name: c.first_name, last_name: c.last_name, grade: c.grade }))
+        ];
+
+        // Deduplicate by name
+        const namesMap = new Map<string, { first_name: string; last_name: string; grade: string }>();
+        combined.forEach(p => {
+          const fName = (p.first_name || '').trim();
+          const lName = (p.last_name || '').trim();
+          if (!fName && !lName) return;
+          const fullName = `${fName} ${lName}`.trim();
+          if (!namesMap.has(fullName)) {
+            namesMap.set(fullName, p);
+          }
+        });
+
+        // Filter out Consultant and Delivery Manager
+        const filtered = Array.from(namesMap.values()).filter(p => {
+          const g = p.grade || '';
+          return g !== 'Consultant' && g !== 'Delivery Manager';
+        });
+
+        const sorted = filtered
+          .map(p => `${p.first_name || ''} ${p.last_name || ''}`.trim())
+          .sort((a, b) => a.localeCompare(b));
+
+        setCollabOptions(sorted);
+      } catch (err) {
+        console.error('Error loading collabs for Xsell:', err);
+      }
+    };
+    fetchCollabs();
+  }, []);
+
+  // Auto-calculate creation form estimated_revenue
+  useEffect(() => {
+    const savings = createForm.estimated_client_savings;
+    const sfPercentage = createForm.beneficiary_sf_percentage;
+    if (savings !== undefined && savings !== null && sfPercentage !== undefined && sfPercentage !== null && sfPercentage !== '') {
+      const ratio = parseRefacPercentageToRatio(sfPercentage);
+      const calculatedRevenue = Math.round(savings * ratio);
+      if (createForm.estimated_revenue !== calculatedRevenue) {
+        setCreateForm(prev => ({ ...prev, estimated_revenue: calculatedRevenue }));
+      }
+    }
+  }, [createForm.estimated_client_savings, createForm.beneficiary_sf_percentage]);
+
+  // Auto-calculate edit form estimated_revenue
+  useEffect(() => {
+    const savings = editForm.estimated_client_savings;
+    const sfPercentage = editForm.beneficiary_sf_percentage;
+    if (savings !== undefined && savings !== null && sfPercentage !== undefined && sfPercentage !== null && sfPercentage !== '') {
+      const ratio = parseRefacPercentageToRatio(sfPercentage);
+      const calculatedRevenue = Math.round(savings * ratio);
+      if (editForm.estimated_revenue !== calculatedRevenue) {
+        setEditForm(prev => ({ ...prev, estimated_revenue: calculatedRevenue }));
+      }
+    }
+  }, [editForm.estimated_client_savings, editForm.beneficiary_sf_percentage]);
+
+  // Auto-calculate creation form amount_to_invoice
+  useEffect(() => {
+    const rev = createForm.estimated_revenue;
+    const pct = createForm.refac_percentage;
+    if (rev !== undefined && rev !== null && pct !== undefined && pct !== null) {
+      const ratio = parseRefacPercentageToRatio(pct);
+      const calculated = Math.round(rev * ratio);
+      if (createForm.amount_to_invoice !== calculated) {
+        setCreateForm(prev => ({ ...prev, amount_to_invoice: calculated }));
+      }
+    }
+  }, [createForm.estimated_revenue, createForm.refac_percentage]);
+
+  // Auto-calculate edit form amount_to_invoice
+  useEffect(() => {
+    const rev = editForm.estimated_revenue;
+    const pct = editForm.refac_percentage;
+    if (rev !== undefined && rev !== null && pct !== undefined && pct !== null) {
+      const ratio = parseRefacPercentageToRatio(pct);
+      const calculated = Math.round(rev * ratio);
+      if (editForm.amount_to_invoice !== calculated) {
+        setEditForm(prev => ({ ...prev, amount_to_invoice: calculated }));
+      }
+    }
+  }, [editForm.estimated_revenue, editForm.refac_percentage]);
 
   // Format Helper for Currencies
   const formatCurrency = (val: number | null | undefined) => {
@@ -437,7 +614,9 @@ const XsellOpportunities: React.FC = () => {
         estimated_client_savings: opp.estimated_client_savings,
         beneficiary_sf_percentage: opp.beneficiary_sf_percentage,
         source_import_filename: importFilename,
-        imported_at: new Date().toISOString()
+        imported_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
       }));
 
       // Supabase supports bulk inserts in chunks to safety proof against payload size limits
@@ -724,7 +903,14 @@ const XsellOpportunities: React.FC = () => {
     const totalSavings = list.reduce((sum, o) => sum + (o.estimated_client_savings || 0), 0);
 
     // Distribution of Status
-    const statusCount: Record<string, number> = {};
+    const statusCount: Record<string, number> = {
+      '01 - RDV à venir': 0,
+      '02 - RDV réalisé': 0,
+      '03 - Contrat signé': 0,
+      '04 - mission en cours': 0,
+      '05 - mission terminée': 0,
+      'KO': 0
+    };
     list.forEach(o => {
       const s = o.status || 'Non renseigné';
       statusCount[s] = (statusCount[s] || 0) + 1;
@@ -876,15 +1062,21 @@ const XsellOpportunities: React.FC = () => {
           ) : (
             <div className="space-y-3 flex-1 overflow-y-auto max-h-[160px] pr-1.5 small-scrollbar">
               {Object.entries(metrics.statusCount).map(([status, count]) => {
-                const pct = Math.round(((count as number) / metrics.totalCount) * 100) || 0;
+                const pct = Math.round(((count as number) / (metrics.totalCount || 1)) * 100) || 0;
+                const barColorClass = getStatusProgressBarColor(status);
+                // Extract bg color of the bar for the small indicator dot
+                const dotColorClass = barColorClass.split(' ')[0];
                 return (
                   <div key={status} className="space-y-1">
                     <div className="flex justify-between items-center text-[10px] font-bold text-navy tracking-tight">
-                      <span className="truncate">{status}</span>
+                      <span className="truncate flex items-center gap-1.5">
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${dotColorClass}`}></span>
+                        {status}
+                      </span>
                       <span>{count} ({pct}%)</span>
                     </div>
                     <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
-                      <div className="bg-navy h-full rounded-full" style={{ width: `${pct}%` }}></div>
+                      <div className={`h-full rounded-full transition-all duration-500 ${barColorClass}`} style={{ width: `${pct}%` }}></div>
                     </div>
                   </div>
                 );
@@ -1092,18 +1284,13 @@ const XsellOpportunities: React.FC = () => {
                   <th className="p-3 border-b hover:bg-gray-50 cursor-pointer transition-colors" onClick={() => handleSort('account_owner')}>Responsable <ArrowUpDown size={10} className="inline ml-1 opacity-20" /></th>
                   <th className="p-3 border-b hover:bg-gray-50 cursor-pointer transition-colors" onClick={() => handleSort('account_name')}>Compte Client <ArrowUpDown size={10} className="inline ml-1 opacity-20" /></th>
                   <th className="p-3 border-b hover:bg-gray-50 cursor-pointer transition-colors" onClick={() => handleSort('beneficiary_entity')}>Entité Bénéf. <ArrowUpDown size={10} className="inline ml-1 opacity-20" /></th>
-                  <th className="p-3 border-b">Contact</th>
-                  <th className="p-3 border-b">Sujets Xsell</th>
+                  <th className="p-3 border-b hover:bg-gray-50 cursor-pointer transition-colors" onClick={() => handleSort('subject')}>Sujet Xsell <ArrowUpDown size={10} className="inline ml-1 opacity-20" /></th>
                   <th className="p-3 border-b hover:bg-gray-50 cursor-pointer transition-colors" onClick={() => handleSort('status')}>Statut <ArrowUpDown size={10} className="inline ml-1 opacity-20" /></th>
-                  <th className="p-3 border-b font-sans">Type Refac.</th>
-                  <th className="p-3 border-b hover:bg-gray-50 cursor-pointer text-right min-w-[100px]" onClick={() => handleSort('estimated_client_savings')}>Écon. Client <ArrowUpDown size={10} className="inline ml-1 opacity-20" /></th>
-                  <th className="p-3 border-b text-right cursor-pointer hover:bg-gray-50" onClick={() => handleSort('beneficiary_sf_percentage')}>% SF Bénéf. <ArrowUpDown size={10} className="inline ml-1 opacity-20" /></th>
                   <th className="p-3 border-b hover:bg-gray-50 cursor-pointer text-right min-w-[100px]" onClick={() => handleSort('estimated_revenue')}>CA Estimé <ArrowUpDown size={10} className="inline ml-1 opacity-20" /></th>
                   <th className="p-3 border-b text-right cursor-pointer hover:bg-gray-50" onClick={() => handleSort('refac_percentage')}>% Refac. <ArrowUpDown size={10} className="inline ml-1 opacity-20" /></th>
                   <th className="p-3 border-b hover:bg-gray-50 cursor-pointer text-right min-w-[110px]" onClick={() => handleSort('amount_to_invoice')}>Montant Transfo <ArrowUpDown size={10} className="inline ml-1 opacity-20" /></th>
                   <th className="p-3 border-b">Facturé</th>
-                  <th className="p-3 border-b whitespace-nowrap">Date Fact.</th>
-                  <th className="p-3 border-b text-right">Détails</th>
+                  <th className="p-3 border-b text-right"></th>
                 </tr>
               </thead>
               <tbody className="divide-y text-navy">
@@ -1121,32 +1308,13 @@ const XsellOpportunities: React.FC = () => {
                     <td className="p-3 truncate max-w-[120px]">{opp.account_owner}</td>
                     <td className="p-3 truncate max-w-[130px] font-black text-navy">{opp.account_name}</td>
                     <td className="p-3 truncate max-w-[120px]">{opp.beneficiary_entity}</td>
-                    <td className="p-3 truncate max-w-[110px] text-gray-400 font-normal">{opp.beneficiary_contact || '-'}</td>
-                    <td className="p-3 truncate max-w-[140px] text-gray-500 font-medium">{opp.subject}</td>
+                    <td className="p-3 truncate max-w-[140px] text-gray-500 font-medium">{opp.subject || '-'}</td>
                     <td className="p-3 whitespace-nowrap">
                       {opp.status ? (
-                        <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase text-center border ${
-                          opp.status === 'En cours' ? 'bg-orange-50 text-orange-700 border-orange-100' :
-                          opp.status === 'Gagné' || opp.status === 'Signé' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
-                          opp.status === 'Perdu' ? 'bg-red-50 text-red-700 border-red-100' :
-                          'bg-gray-50 text-gray-600 border-gray-100'
-                        }`}>
+                        <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase text-center border ${getStatusBadgeStyles(opp.status)}`}>
                           {opp.status}
                         </span>
                       ) : '-'}
-                    </td>
-                    <td className="p-3 whitespace-nowrap">
-                      {opp.billing_model ? (
-                        <span className="px-2 py-0.5 rounded text-[9px] font-bold bg-gray-100 text-gray-600">
-                          {opp.billing_model}
-                        </span>
-                      ) : '-'}
-                    </td>
-                    <td className="p-3 text-right whitespace-nowrap text-gray-500 font-mono text-[10px]">
-                      {formatCurrency(opp.estimated_client_savings)}
-                    </td>
-                    <td className="p-3 text-right whitespace-nowrap text-gray-500 font-mono text-[10px]">
-                      {formatPercentage(opp.beneficiary_sf_percentage)}
                     </td>
                     <td className="p-3 text-right whitespace-nowrap text-navy font-mono">
                       {formatCurrency(opp.estimated_revenue)}
@@ -1159,15 +1327,10 @@ const XsellOpportunities: React.FC = () => {
                     </td>
                     <td className="p-3 whitespace-nowrap">
                       {opp.transfo_invoiced ? (
-                        <span className={`px-1.5 py-0.5 text-[9px] font-black uppercase rounded ${
-                          opp.transfo_invoiced === 'Oui' || opp.transfo_invoiced === 'Facturé' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'
-                        }`}>
+                        <span className={`px-1.5 py-0.5 text-[9px] font-black uppercase rounded border ${getTransfoInvoicedBadgeStyles(opp.transfo_invoiced)}`}>
                           {opp.transfo_invoiced}
                         </span>
                       ) : '-'}
-                    </td>
-                    <td className="p-3 whitespace-nowrap text-gray-400 font-mono text-[10px]">
-                      {opp.transfo_invoice_date || '-'}
                     </td>
                     <td className="p-3 text-right">
                       <button className="p-1 text-gray-300 hover:text-navy hover:bg-gray-100 rounded transition-colors" aria-label="Afficher les détails">
@@ -1208,14 +1371,17 @@ const XsellOpportunities: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Responsable Lead</label>
-                  <input 
-                    type="text" 
+                  <select 
                     required
-                    placeholder="Nom du responsable"
-                    className="w-full border rounded-xl px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-navy/20"
+                    className="w-full border rounded-xl px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-navy/20 bg-white"
                     value={createForm.account_owner || ''}
                     onChange={e => setCreateForm({...createForm, account_owner: e.target.value})}
-                  />
+                  >
+                    <option value="">Sélectionner un collaborateur</option>
+                    {collabOptions.map(collab => (
+                      <option key={collab} value={collab}>{collab}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Compte Client</label>
@@ -1260,23 +1426,31 @@ const XsellOpportunities: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Statut Mission</label>
-                  <input 
-                    type="text" 
-                    placeholder="En cours, Gagné, Perdu etc."
-                    className="w-full border rounded-xl px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-navy/20"
+                  <select 
+                    className="w-full border rounded-xl px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-navy/20 bg-white"
                     value={createForm.status || ''}
                     onChange={e => setCreateForm({...createForm, status: e.target.value})}
-                  />
+                  >
+                    <option value="">Sélectionner un statut</option>
+                    <option value="01 - RDV à venir">01 - RDV à venir</option>
+                    <option value="02 - RDV réalisé">02 - RDV réalisé</option>
+                    <option value="03 - Contrat signé">03 - Contrat signé</option>
+                    <option value="04 - mission en cours">04 - mission en cours</option>
+                    <option value="05 - mission terminée">05 - mission terminée</option>
+                    <option value="KO">KO</option>
+                  </select>
                 </div>
                 <div>
                   <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Type de refacturation</label>
-                  <input 
-                    type="text" 
-                    placeholder="Forfait, Régie etc."
-                    className="w-full border rounded-xl px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-navy/20"
+                  <select 
+                    className="w-full border rounded-xl px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-navy/20 bg-white"
                     value={createForm.billing_model || ''}
                     onChange={e => setCreateForm({...createForm, billing_model: e.target.value})}
-                  />
+                  >
+                    <option value="">Sélectionner un type</option>
+                    <option value="Refacturable">Refacturable</option>
+                    <option value="Marge intégrée">Marge intégrée</option>
+                  </select>
                 </div>
                 <div>
                   <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Économies client estimées (€)</label>
@@ -1327,13 +1501,16 @@ const XsellOpportunities: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Statut de facturation TRANSFO</label>
-                  <input 
-                    type="text" 
-                    placeholder="Oui, Non, Facturé..."
-                    className="w-full border rounded-xl px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-navy/20"
+                  <select 
+                    className="w-full border rounded-xl px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-navy/20 bg-white"
                     value={createForm.transfo_invoiced || ''}
                     onChange={e => setCreateForm({...createForm, transfo_invoiced: e.target.value})}
-                  />
+                  >
+                    <option value="">Sélectionner un statut</option>
+                    <option value="01 - Non prêt à facturer">01 - Non prêt à facturer</option>
+                    <option value="02 - Prêt à facturer">02 - Prêt à facturer</option>
+                    <option value="03 - Facturé">03 - Facturé</option>
+                  </select>
                 </div>
                 <div>
                   <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Date de facturation Transfo</label>
@@ -1443,12 +1620,17 @@ const XsellOpportunities: React.FC = () => {
                     </div>
                     <div>
                       <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1">Responsable Lead</label>
-                      <input 
-                        type="text"
-                        className="w-full border rounded-xl px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-navy/20"
+                      <select 
+                        required
+                        className="w-full border rounded-xl px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-navy/20 bg-white"
                         value={editForm.account_owner || ''}
                         onChange={e => setEditForm({...editForm, account_owner: e.target.value})}
-                      />
+                      >
+                        <option value="">Sélectionner un collaborateur</option>
+                        {collabOptions.map(collab => (
+                          <option key={collab} value={collab}>{collab}</option>
+                        ))}
+                      </select>
                     </div>
                   </div>
 
@@ -1497,21 +1679,31 @@ const XsellOpportunities: React.FC = () => {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1">Statut Mission</label>
-                      <input 
-                        type="text"
-                        className="w-full border rounded-xl px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-navy/20"
+                      <select 
+                        className="w-full border rounded-xl px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-navy/20 bg-white"
                         value={editForm.status || ''}
                         onChange={e => setEditForm({...editForm, status: e.target.value})}
-                      />
+                      >
+                        <option value="">Sélectionner un statut</option>
+                        <option value="01 - RDV à venir">01 - RDV à venir</option>
+                        <option value="02 - RDV réalisé">02 - RDV réalisé</option>
+                        <option value="03 - Contrat signé">03 - Contrat signé</option>
+                        <option value="04 - mission en cours">04 - mission en cours</option>
+                        <option value="05 - mission terminée">05 - mission terminée</option>
+                        <option value="KO">KO</option>
+                      </select>
                     </div>
                     <div>
                       <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1">Type de refacturation</label>
-                      <input 
-                        type="text"
-                        className="w-full border rounded-xl px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-navy/20"
+                      <select 
+                        className="w-full border rounded-xl px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-navy/20 bg-white"
                         value={editForm.billing_model || ''}
                         onChange={e => setEditForm({...editForm, billing_model: e.target.value})}
-                      />
+                      >
+                        <option value="">Sélectionner un type</option>
+                        <option value="Refacturable">Refacturable</option>
+                        <option value="Marge intégrée">Marge intégrée</option>
+                      </select>
                     </div>
                   </div>
 
@@ -1569,12 +1761,16 @@ const XsellOpportunities: React.FC = () => {
                     </div>
                     <div>
                       <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1">Statut facturation Transfo</label>
-                      <input 
-                        type="text"
-                        className="w-full border rounded-xl px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-navy/20"
+                      <select 
+                        className="w-full border rounded-xl px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-navy/20 bg-white"
                         value={editForm.transfo_invoiced || ''}
                         onChange={e => setEditForm({...editForm, transfo_invoiced: e.target.value})}
-                      />
+                      >
+                        <option value="">Sélectionner un statut</option>
+                        <option value="01 - Non prêt à facturer">01 - Non prêt à facturer</option>
+                        <option value="02 - Prêt à facturer">02 - Prêt à facturer</option>
+                        <option value="03 - Facturé">03 - Facturé</option>
+                      </select>
                     </div>
                   </div>
 
@@ -1632,11 +1828,7 @@ const XsellOpportunities: React.FC = () => {
                         <div className="text-base font-black text-navy">{selectedOpp.account_name}</div>
                       </div>
                       {selectedOpp.status && (
-                        <span className={`px-2.5 py-1 text-[9px] font-black uppercase tracking-wider rounded-lg border ${
-                          selectedOpp.status === 'En cours' ? 'bg-orange-50 text-orange-700 border-orange-100' :
-                          selectedOpp.status === 'Gagné' || selectedOpp.status === 'Signé' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
-                          'bg-red-50 text-red-700 border-red-100'
-                        }`}>
+                        <span className={`px-2.5 py-1 text-[9px] font-black uppercase tracking-wider rounded-lg border ${getStatusBadgeStyles(selectedOpp.status)}`}>
                           {selectedOpp.status}
                         </span>
                       )}
@@ -1719,7 +1911,7 @@ const XsellOpportunities: React.FC = () => {
                         <span className="text-[9px] text-gray-400 font-black uppercase tracking-widest block leading-none">Facturé Transfo</span>
                         <p className="text-xs font-bold mt-1">
                           {selectedOpp.transfo_invoiced ? (
-                            <span className={`px-2 py-0.5 rounded font-black text-[9px] ${selectedOpp.transfo_invoiced === 'Oui' || selectedOpp.transfo_invoiced === 'Facturé' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>
+                            <span className={`px-2 py-0.5 rounded font-black text-[9px] border ${getTransfoInvoicedBadgeStyles(selectedOpp.transfo_invoiced)}`}>
                               {selectedOpp.transfo_invoiced}
                             </span>
                           ) : '-'}
@@ -1741,12 +1933,12 @@ const XsellOpportunities: React.FC = () => {
                   </div>
 
                   {/* Metadata tracking log */}
-                  {(selectedOpp.source_import_filename || selectedOpp.imported_at) && (
-                    <div className="pt-3 border-t text-[8px] font-black uppercase tracking-wider text-gray-300 space-y-1 text-right">
-                      {selectedOpp.source_import_filename && <p>Fichier: {selectedOpp.source_import_filename}</p>}
-                      {selectedOpp.imported_at && <p>Importé le: {new Date(selectedOpp.imported_at).toLocaleString()}</p>}
-                    </div>
-                  )}
+                  <div className="pt-3 border-t text-[8px] font-black uppercase tracking-wider text-gray-400 space-y-1 text-right flex flex-col items-end">
+                    {selectedOpp.source_import_filename && <p>Fichier: {selectedOpp.source_import_filename}</p>}
+                    {selectedOpp.imported_at && <p>Importé le: {new Date(selectedOpp.imported_at).toLocaleString('fr-FR')}</p>}
+                    {selectedOpp.created_at && <p>Créé le: {new Date(selectedOpp.created_at).toLocaleString('fr-FR')}</p>}
+                    {selectedOpp.updated_at && <p>Modifié le: {new Date(selectedOpp.updated_at).toLocaleString('fr-FR')}</p>}
+                  </div>
 
                   {/* Actions (Delete button) */}
                   <div className="pt-6 border-t flex justify-between">
