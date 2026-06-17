@@ -304,10 +304,8 @@ const App: React.FC = () => {
           return <AdminGate onAuthorize={() => setIsAdminAuthorized(true)} title="Accès Suivi Budgétaire" />;
         }
         return <BudgetTracking state={state} updateState={updateState} />;
-
       case 'xsell':
         return <XsellOpportunities />;
-        
       default:
         return <Dashboard state={state} />;
     }
