@@ -14,6 +14,7 @@ import Timesheets from './modules/Timesheets';
 import Planning from './modules/Planning';
 import Availability from './modules/Availability';
 import BudgetTracking from './modules/BudgetTracking';
+import XsellOpportunities from './modules/XsellOpportunities';
 import LoginPage from './components/LoginPage';
 import { CheckCircle, AlertTriangle, RefreshCw } from 'lucide-react';
 import { TimesheetEntry } from './types';
@@ -303,6 +304,10 @@ const App: React.FC = () => {
           return <AdminGate onAuthorize={() => setIsAdminAuthorized(true)} title="Accès Suivi Budgétaire" />;
         }
         return <BudgetTracking state={state} updateState={updateState} />;
+
+      case 'xsell':
+        return <XsellOpportunities />;
+        
       default:
         return <Dashboard state={state} />;
     }
