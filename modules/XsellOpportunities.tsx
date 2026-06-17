@@ -923,12 +923,14 @@ const XsellOpportunities: React.FC = () => {
       .reduce((sum, o) => sum + (o.amount_to_invoice || 0), 0);
     const transfoCompleted = list
       .filter(o => {
-        const isCompleted = o.status === '05 - mission terminée';
         const transValue = (o.transfo_invoiced || '').trim().toLowerCase();
-        const isFactured = transValue.includes('factur') || transValue === 'oui';
-        return isCompleted && isFactured;
+        return transValue.includes('03 - facturé') || transValue === '03 - facturé';
       })
-      .reduce((sum, o) => sum + (o.amount_to_invoice || 0), 0);
+      .reduce((sum, o) => {
+        const estRevenue = o.estimated_revenue || 0;
+        const ratio = parseRefacPercentageToRatio(o.refac_percentage);
+        return sum + Math.round(estRevenue * ratio);
+      }, 0);
 
     const epsaRevenue = list
       .filter(o => (o.beneficiary_entity || '').toLowerCase().includes('epsa'))
@@ -1030,7 +1032,7 @@ const XsellOpportunities: React.FC = () => {
         <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between relative overflow-hidden" id="xsell-card-total">
           <div className="space-y-1 z-10">
             <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">Total Opportunités</span>
-            <div className="text-4xl font-black text-navy">{metrics.totalCount}</div>
+            <div className="text-xl font-black text-navy">{metrics.totalCount}</div>
             <div className="text-[11px] font-bold text-gray-500 flex items-center gap-1.5 mt-1">
               <span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block"></span>
               <span>dont {metrics.statusCount['KO'] || 0} KO</span>
@@ -1045,7 +1047,7 @@ const XsellOpportunities: React.FC = () => {
         <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between relative overflow-hidden" id="xsell-card-in-progress">
           <div className="space-y-1 z-10">
             <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">Missions En Cours</span>
-            <div className="text-4xl font-black text-amber-600">{metrics.countInProgress}</div>
+            <div className="text-xl font-black text-amber-600">{metrics.countInProgress}</div>
             <div className="text-[11px] font-bold text-gray-500 flex items-center gap-1.5 mt-1">
               <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block"></span>
               <span>{metrics.countCompleted} terminées</span>
@@ -1058,9 +1060,9 @@ const XsellOpportunities: React.FC = () => {
 
         {/* Estimated Revenue Card */}
         <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between relative overflow-hidden" id="xsell-card-estimated-rev">
-          <div className="space-y-1 z-10">
+          <div className="space-y-1 z-10 font-sans">
             <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">CA Bénéficiaire Estimé</span>
-            <div className="text-3xl font-black text-black truncate">{formatCurrency(metrics.totalEstRevenue)}</div>
+            <div className="text-xl font-black text-black truncate">{formatCurrency(metrics.totalEstRevenue)}</div>
             <div className="text-[11px] font-bold text-gray-500 flex items-center gap-1.5 mt-1">
               <span className="w-1.5 h-1.5 rounded-full bg-black inline-block"></span>
               <span>Entités Groupe EPSA</span>
@@ -1073,9 +1075,9 @@ const XsellOpportunities: React.FC = () => {
 
         {/* Invoiced Transfo Card */}
         <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between relative overflow-hidden" id="xsell-card-invoiced-trans">
-          <div className="space-y-1 z-10">
+          <div className="space-y-1 z-10 font-sans">
             <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">CA prév. Transfo à facturer</span>
-            <div className="text-3xl font-black text-emerald-600 truncate">{formatCurrency(metrics.transfoInProgress)}</div>
+            <div className="text-xl font-black text-emerald-600 truncate">{formatCurrency(metrics.transfoInProgress)}</div>
             <div className="text-[11px] font-bold text-gray-500 flex items-center gap-1.5 mt-1">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
               <span>mission en cours</span>
@@ -1088,9 +1090,9 @@ const XsellOpportunities: React.FC = () => {
 
         {/* Client Savings Card */}
         <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between relative overflow-hidden" id="xsell-card-savings">
-          <div className="space-y-1 z-10">
+          <div className="space-y-1 z-10 font-sans">
             <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">CA Transfo facturé</span>
-            <div className="text-3xl font-black text-green-500 truncate">{formatCurrency(metrics.transfoCompleted)}</div>
+            <div className="text-xl font-black text-green-500 truncate">{formatCurrency(metrics.transfoCompleted)}</div>
             <div className="text-[11px] font-bold text-gray-500 flex items-center gap-1.5 mt-1">
               <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block"></span>
               <span>mission terminée</span>

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { 
   TrendingUp, Target, Briefcase, Users, AlertCircle, 
   UserCheck, BarChart3, CloudRain, 
@@ -7,7 +7,8 @@ import {
   Euro, AlertTriangle, ShieldAlert, X,
   ExternalLink,
   Coins,
-  HandCoins
+  HandCoins,
+  Layers
 } from 'lucide-react';
 import { AppState, Country, BillingMode, MissionStatus, Role, TimesheetStatus } from '../types';
 import { 
@@ -17,6 +18,8 @@ import {
 } from 'recharts';
 import { getBusinessDays, getMonday, getFiscalYear, calculateSmoothedMissionRevenue, calculateTotalMissionRevenue, isWorkingDay, getDedupedTimesheets } from '../utils';
 import { parseISO, format, isAfter, startOfToday, subWeeks, endOfWeek, eachDayOfInterval, isBefore, startOfDay, endOfDay, startOfWeek, endOfMonth, addDays, eachWeekOfInterval, isValid, max, min, differenceInDays, startOfMonth, isSameDay } from 'date-fns';
+import { supabase } from '../services/supabase';
+import { XsellOpportunity } from './XsellOpportunities';
 
 interface DashboardProps {
   state: AppState;
@@ -37,6 +40,161 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
   const { missions, planning, timesheets: rawTimesheets, collaborators, globalCountry, globalFY, budgetValues, holidays, manualExpenses } = state;
   const today = startOfToday();
   const [selectedTypology, setSelectedTypology] = useState<string | null>(null);
+
+  // DB & State management for Xsell indicators
+  const [xsellOpportunities, setXsellOpportunities] = useState<XsellOpportunity[]>([]);
+
+  const fetchXsellOpportunities = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('xsell_opportunities')
+        .select('*');
+      if (!error && data) {
+        setXsellOpportunities(data);
+      }
+    } catch (err) {
+      console.error('Error fetching xsell opportunities in Dashboard:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchXsellOpportunities();
+
+    const channel = supabase.channel('xsell-dashboard-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'xsell_opportunities' }, () => {
+        fetchXsellOpportunities();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  // Helper for parsing refac percentage to ratio (similar to XsellOpportunities)
+  const parseRefacPercentageToRatio = (val: string | null | undefined): number => {
+    if (!val) return 0;
+    const clean = String(val).trim().replace(',', '.');
+    if (!clean || clean.toLowerCase() === 'na') return 0;
+    
+    const hasPercent = clean.includes('%');
+    const numValue = parseFloat(clean.replace('%', ''));
+    if (isNaN(numValue)) return 0;
+    
+    if (hasPercent) {
+      return numValue / 100;
+    }
+    
+    if (numValue > 1) {
+      return numValue / 100;
+    }
+    return numValue;
+  };
+
+  // Format Helper for Currencies (from Xsell)
+  const formatCurrencyXsell = (val: number | null | undefined) => {
+    if (val === null || val === undefined) return '-';
+    const rounded = Math.round(val);
+    const formattedNum = String(rounded).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+    return `${formattedNum}\u00A0€`;
+  };
+
+  const getStatusProgressBarColorXsell = (status: string | null | undefined) => {
+    const norm = (status || '').trim();
+    switch (norm) {
+      case '01 - RDV à venir':
+        return 'bg-blue-500';
+      case '02 - RDV réalisé':
+        return 'bg-amber-500';
+      case '03 - Contrat signé':
+        return 'bg-emerald-500';
+      case '04 - mission en cours':
+        return 'bg-indigo-500';
+      case '05 - mission terminée':
+        return 'bg-green-500 shadow-[0_0_8px_#22c55e]';
+      case 'KO':
+        return 'bg-red-500';
+      default:
+        if (norm.includes('cours') || norm.includes('Active')) return 'bg-orange-500';
+        if (norm.includes('Gagné') || norm.includes('Signé')) return 'bg-emerald-500';
+        if (norm.includes('Perdu') || norm === 'KO') return 'bg-red-500';
+        return 'bg-navy';
+    }
+  };
+
+  const xsellMetrics = useMemo(() => {
+    const list = xsellOpportunities;
+    const totalEstRevenue = list.reduce((sum, o) => sum + (o.estimated_revenue || 0), 0);
+    const totalInvoiceTransfo = list.reduce((sum, o) => sum + (o.amount_to_invoice || 0), 0);
+    const totalSavings = list.reduce((sum, o) => sum + (o.estimated_client_savings || 0), 0);
+
+    // Distribution of Status
+    const statusCount: Record<string, number> = {
+      '01 - RDV à venir': 0,
+      '02 - RDV réalisé': 0,
+      '03 - Contrat signé': 0,
+      '04 - mission en cours': 0,
+      '05 - mission terminée': 0,
+      'KO': 0
+    };
+    list.forEach(o => {
+      const s = o.status || 'Non renseigné';
+      statusCount[s] = (statusCount[s] || 0) + 1;
+    });
+
+    const transfoInProgress = list
+      .filter(o => o.status === '04 - mission en cours')
+      .reduce((sum, o) => sum + (o.amount_to_invoice || 0), 0);
+    const transfoCompleted = list
+      .filter(o => {
+        const transValue = (o.transfo_invoiced || '').trim().toLowerCase();
+        return transValue.includes('03 - facturé') || transValue === '03 - facturé';
+      })
+      .reduce((sum, o) => {
+        const estRevenue = o.estimated_revenue || 0;
+        const ratio = parseRefacPercentageToRatio(o.refac_percentage);
+        return sum + Math.round(estRevenue * ratio);
+      }, 0);
+
+    const epsaRevenue = list
+      .filter(o => (o.beneficiary_entity || '').toLowerCase().includes('epsa'))
+      .reduce((sum, o) => sum + (o.estimated_revenue || 0), 0);
+
+    // Top Owner
+    const ownerRevenue: Record<string, number> = {};
+    list.forEach(o => {
+      const ow = o.account_owner || 'Non renseigné';
+      ownerRevenue[ow] = (ownerRevenue[ow] || 0) + (o.estimated_revenue || 0);
+    });
+    const topOwners = Object.entries(ownerRevenue)
+      .map(([name, val]) => ({ name, value: val }))
+      .sort((a, b) => b.value - a.value);
+
+    // Top Entity
+    const entityRevenue: Record<string, number> = {};
+    list.forEach(o => {
+      const ent = o.beneficiary_entity || 'Non renseigné';
+      entityRevenue[ent] = (entityRevenue[ent] || 0) + (o.estimated_revenue || 0);
+    });
+    const topEntities = Object.entries(entityRevenue)
+      .map(([name, val]) => ({ name, value: val }))
+      .sort((a, b) => b.value - a.value);
+
+    return {
+      totalCount: list.length,
+      totalEstRevenue,
+      totalInvoiceTransfo,
+      totalSavings,
+      statusCount,
+      topOwners,
+      topEntities,
+      countInProgress: statusCount['04 - mission en cours'] || 0,
+      countCompleted: statusCount['05 - mission terminée'] || 0,
+      transfoInProgress,
+      transfoCompleted,
+      epsaRevenue
+    };
+  }, [xsellOpportunities]);
 
   // Centralized deduplication for all Dashboard calculations
   const timesheets = useMemo(() => {
@@ -982,6 +1140,220 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      </div>
+
+      {/* SECTION SUIVI XSELL */}
+      <div className="bg-white p-8 rounded-[40px] border border-gray-100 shadow-sm space-y-6">
+        <h3 className={`${SECTION_TITLE_CLASS}`}>
+          <div className="w-7 h-7 rounded-full bg-blue-500 flex items-center justify-center text-white shadow-lg shrink-0">
+            <TrendingUp size={16} />
+          </div>
+          SUIVI XSELL
+        </h3>
+        
+        {/* Metric Cards - 5 columns */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          {/* Card 1: Total opportunités */}
+          <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between relative overflow-hidden">
+            <div className="space-y-1 z-10">
+              <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">Total Opportunités</span>
+              <div className="text-xl font-black text-navy">{xsellMetrics.totalCount}</div>
+              <div className="text-[11px] font-bold text-gray-500 flex items-center gap-1.5 mt-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block"></span>
+                <span>dont {xsellMetrics.statusCount['KO'] || 0} KO</span>
+              </div>
+            </div>
+            <div className="absolute right-4 top-4 bg-navy/5 text-navy p-3 rounded-full">
+              <Briefcase size={20} />
+            </div>
+          </div>
+
+          {/* Card 2: Missions en cours */}
+          <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between relative overflow-hidden">
+            <div className="space-y-1 z-10">
+              <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">Missions En Cours</span>
+              <div className="text-xl font-black text-amber-600">{xsellMetrics.countInProgress}</div>
+              <div className="text-[11px] font-bold text-gray-500 flex items-center gap-1.5 mt-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block"></span>
+                <span>{xsellMetrics.countCompleted} terminées</span>
+              </div>
+            </div>
+            <div className="absolute right-4 top-4 bg-amber-50 text-amber-600 p-3 rounded-full">
+              <Layers size={20} />
+            </div>
+          </div>
+
+          {/* Card 3: CA bénéficiaire estimé */}
+          <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between relative overflow-hidden flex-1 min-w-0">
+            <div className="space-y-1 z-10 min-w-0 w-full">
+              <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">CA Bénéficiaire Estimé</span>
+              <div className="text-xl font-black text-black truncate">{formatCurrencyXsell(xsellMetrics.totalEstRevenue)}</div>
+              <div className="text-[11px] font-bold text-gray-500 flex items-center gap-1.5 mt-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-black inline-block"></span>
+                <span>Entités Groupe EPSA</span>
+              </div>
+            </div>
+            <div className="absolute right-4 top-4 bg-black/5 text-black p-3 rounded-full">
+              <Coins size={20} />
+            </div>
+          </div>
+
+          {/* Card 4: CA prév. Transfo à facturer */}
+          <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between relative overflow-hidden flex-1 min-w-0">
+            <div className="space-y-1 z-10 min-w-0 w-full">
+              <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">CA prév. Transfo à facturer</span>
+              <div className="text-xl font-black text-emerald-600 truncate">{formatCurrencyXsell(xsellMetrics.transfoInProgress)}</div>
+              <div className="text-[11px] font-bold text-gray-500 flex items-center gap-1.5 mt-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
+                <span>mission en cours</span>
+              </div>
+            </div>
+            <div className="absolute right-4 top-4 bg-emerald-50 text-emerald-600 p-3 rounded-full">
+              <Euro size={20} />
+            </div>
+          </div>
+
+          {/* Card 5: CA transfo facturé */}
+          <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between relative overflow-hidden flex-1 min-w-0">
+            <div className="space-y-1 z-10 min-w-0 w-full">
+              <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">CA Transfo facturé</span>
+              <div className="text-xl font-black text-green-500 truncate">{formatCurrencyXsell(xsellMetrics.transfoCompleted)}</div>
+              <div className="text-[11px] font-bold text-gray-500 flex items-center gap-1.5 mt-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block"></span>
+                <span>mission terminée</span>
+              </div>
+            </div>
+            <div className="absolute right-4 top-4 bg-green-50 text-green-500 p-3 rounded-full">
+              <TrendingUp size={20} />
+            </div>
+          </div>
+        </div>
+
+        {/* Breakdowns - 3 columns */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Card 6: Répartition par Statut */}
+          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between">
+            <h3 className="text-xs font-black text-navy uppercase tracking-widest border-b pb-2.5 mb-3 flex items-center gap-1.5">
+              <Layers size={14} className="text-navy" /> Répartition par Statut
+            </h3>
+            {Object.keys(xsellMetrics.statusCount).length === 0 ? (
+              <p className="text-center text-xs text-gray-300 py-6 font-semibold">Aucune donnée disponible</p>
+            ) : (
+              <div className="flex flex-col flex-1 h-[160px] justify-between">
+                <div className="flex items-end justify-between h-[155px] pb-1 border-b border-gray-100 relative px-1">
+                  <div className="absolute inset-x-0 bottom-1/4 border-b border-gray-50 border-dashed pointer-events-none"></div>
+                  <div className="absolute inset-x-0 bottom-2/4 border-b border-gray-50 border-dashed pointer-events-none"></div>
+                  <div className="absolute inset-x-0 bottom-3/4 border-b border-gray-50 border-dashed pointer-events-none"></div>
+
+                  {(() => {
+                    const statusesToDisplay = Object.entries(xsellMetrics.statusCount)
+                      .filter(([status]) => status !== 'KO' && status !== 'Non renseigné')
+                      .sort((a, b) => a[0].localeCompare(b[0]));
+                    
+                    const maxDisplayCount = Math.max(...statusesToDisplay.map(([_, count]) => count as number), 1);
+
+                    return statusesToDisplay.map(([status, count]) => {
+                      const pct = Math.round(((count as number) / (xsellMetrics.totalCount || 1)) * 100) || 0;
+                      const heightPct = ((count as number) / maxDisplayCount) * 100;
+                      const barColorClass = getStatusProgressBarColorXsell(status);
+                      
+                      const parts = status.split(' - ');
+                      const name = parts[parts.length - 1] || status;
+                      let shortName = name;
+                      if (name.toLowerCase().includes('rdv à venir')) shortName = 'RDV à ven.';
+                      if (name.toLowerCase().includes('rdv réalisé')) shortName = 'RDV réal.';
+                      if (name.toLowerCase().includes('contrat signé')) shortName = 'Contrat';
+                      if (name.toLowerCase().includes('cours')) shortName = 'En cours';
+                      if (name.toLowerCase().includes('terminée')) shortName = 'Terminée';
+
+                      return (
+                        <div key={status} className="flex flex-col items-center flex-1 group relative">
+                          <div className="absolute bottom-full mb-2 hidden group-hover:flex flex-col items-center z-30 pointer-events-none">
+                            <div className="bg-navy text-white text-[9px] font-bold py-1 px-2 rounded shadow-lg whitespace-nowrap">
+                              {status}: <span className="font-extrabold text-amber-300">{count}</span> ({pct}%)
+                            </div>
+                            <div className="w-1.5 h-1.5 bg-navy rotate-45 -mt-0.5"></div>
+                          </div>
+
+                          <span className="text-[10px] font-extrabold text-navy/80 mb-1 transition-all group-hover:scale-110 group-hover:text-navy">
+                            {count}
+                          </span>
+
+                          <div className="w-7 sm:w-9 bg-gray-50/50 rounded-t-md relative overflow-hidden flex items-end h-[105px] border border-gray-100/50 hover:border-gray-200 hover:shadow-xs transition-all duration-200">
+                            <div 
+                              className={`w-full rounded-t-sm transition-all duration-700 ease-out origin-bottom ${barColorClass}`}
+                              style={{ height: `${heightPct}%` }}
+                            ></div>
+                          </div>
+
+                          <span className="text-[8px] font-black tracking-tight text-gray-400 mt-1.5 text-center leading-none truncate max-w-full group-hover:text-navy transition-colors">
+                            {shortName}
+                          </span>
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Card 7: Top Responsables Lead */}
+          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between">
+            <h3 className="text-xs font-black text-navy uppercase tracking-widest border-b pb-2.5 mb-3 flex items-center gap-1.5">
+              <Users size={14} className="text-blue-500" /> Top Responsables Lead
+            </h3>
+            {xsellMetrics.topOwners.length === 0 ? (
+              <p className="text-center text-xs text-gray-300 py-6 font-semibold">Aucune donnée disponible</p>
+            ) : (
+              <div className="space-y-3 flex-1 overflow-y-auto max-h-[160px] pr-1.5 small-scrollbar">
+                {xsellMetrics.topOwners.map((item) => {
+                  const maxVal = xsellMetrics.topOwners[0]?.value || 1;
+                  const pct = Math.round((item.value / maxVal) * 100) || 0;
+                  return (
+                    <div key={item.name} className="space-y-1">
+                      <div className="flex justify-between items-center text-[10px] font-bold text-navy tracking-tight">
+                        <span className="truncate">{item.name}</span>
+                        <span>{formatCurrencyXsell(item.value)}</span>
+                      </div>
+                      <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
+                        <div className="bg-blue-500 h-full rounded-full" style={{ width: `${pct}%` }}></div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Card 8: Top Entités Bénéficiaires */}
+          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between">
+            <h3 className="text-xs font-black text-navy uppercase tracking-widest border-b pb-2.5 mb-3 flex items-center gap-1.5">
+              <TrendingUp size={14} className="text-emerald-500" /> Top Entités Bénéficiaires
+            </h3>
+            {xsellMetrics.topEntities.length === 0 ? (
+              <p className="text-center text-xs text-gray-300 py-6 font-semibold">Aucune donnée disponible</p>
+            ) : (
+              <div className="space-y-3 flex-1 overflow-y-auto max-h-[160px] pr-1.5 small-scrollbar">
+                {xsellMetrics.topEntities.map((item) => {
+                  const maxVal = xsellMetrics.topEntities[0]?.value || 1;
+                  const pct = Math.round((item.value / maxVal) * 100) || 0;
+                  return (
+                    <div key={item.name} className="space-y-1">
+                      <div className="flex justify-between items-center text-[10px] font-bold text-navy tracking-tight">
+                        <span className="truncate">{item.name}</span>
+                        <span>{formatCurrencyXsell(item.value)}</span>
+                      </div>
+                      <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
+                        <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${pct}%` }}></div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       </div>
