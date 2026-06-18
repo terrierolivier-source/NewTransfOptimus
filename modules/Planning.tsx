@@ -478,10 +478,43 @@ const Planning: React.FC<PlanningProps> = ({ state, updateState }) => {
               const margin = calculateMissionMargin(m);
               const staff = state.planning.filter(p => p.missionId === m.id);
               const uniqueStaff = Array.from(new Set(staff.map(s => s.collaboratorId || s.userId))).map((id: string) => {
-                const pEntry = staff.find(s => s.userId === id || s.collaboratorId === id);
+                const pEntries = staff.filter(s => s.userId === id || s.collaboratorId === id);
+                const pEntry = pEntries[0];
                 const collaborator = state.collaborators.find(u => u.id === id);
                 return { id, name: pEntry?.externalName || (collaborator ? `${collaborator.firstName} ${collaborator.lastName}` : 'Inconnu'), type: pEntry?.externalType };
               });
+
+              // Let's group identical external names (for freelancers/subcontractors) and same IDs (for internals) dynamically
+              const groupedStaff = (() => {
+                const groups: Array<{
+                  id: string;
+                  name: string;
+                  type: 'internal' | 'freelance' | 'subcontractor';
+                  talentIds: string[];
+                }> = [];
+
+                uniqueStaff.forEach(s => {
+                  const type = s.type || 'internal';
+                  if (type === 'internal') {
+                    let existing = groups.find(g => g.type === 'internal' && g.id === s.id);
+                    if (!existing) {
+                      existing = { id: s.id, name: s.name, type: 'internal', talentIds: [] };
+                      groups.push(existing);
+                    }
+                    if (!existing.talentIds.includes(s.id)) existing.talentIds.push(s.id);
+                  } else {
+                    const normName = s.name.trim().toLowerCase();
+                    let existing = groups.find(g => g.type === type && g.name.trim().toLowerCase() === normName);
+                    if (!existing) {
+                      existing = { id: s.id, name: s.name, type: type as any, talentIds: [] };
+                      groups.push(existing);
+                    }
+                    if (!existing.talentIds.includes(s.id)) existing.talentIds.push(s.id);
+                  }
+                });
+
+                return groups;
+              })();
               
               const missionWarnings = getMissionWarnings(m);
               const rowBgColor = isEven ? 'bg-white' : 'bg-slate-50';
@@ -538,19 +571,54 @@ const Planning: React.FC<PlanningProps> = ({ state, updateState }) => {
                     </div>
                   </div>
 
-                  {isExpanded && uniqueStaff.map(s => {
+                  {isExpanded && groupedStaff.map(s => {
                     const rowKey = `${m.id}-${s.id}`;
                     const isStaffHovered = hoveredRowId === rowKey;
-                    const cBarStyles = getConsultantBarStyles(s.id, m);
                     const subRowBgColor = isEven ? 'bg-white' : 'bg-slate-50';
-                    const staffEntries = staff.filter(p => p.userId === s.id);
-                    const staffOccupancy = (() => {
-                      const internal = m.internalStaffing?.find(st => st.userId === s.id);
-                      const freelance = m.freelanceStaffing?.find(f => f.id === s.id);
-                      const sub = m.subcontractorStaffing?.find(sub => sub.id === s.id);
-                      return internal?.percentage || freelance?.percentage || sub?.percentage || 0;
-                    })();
+                    const staffEntries = staff.filter(p => s.talentIds.includes(p.collaboratorId || p.userId));
                     const staffSentiment = staffEntries.find(p => p.sentiment)?.sentiment || '😐';
+
+                    const consultantBars: Array<{ style: any; percentage: number }> = [];
+                    if (s.type === 'internal') {
+                      const rows = (m.internalStaffing || []).filter(st => s.talentIds.includes(st.userId) || s.talentIds.includes(st.collaboratorId));
+                      rows.forEach(row => {
+                        const style = getBarStyles(row.startDate, row.endDate);
+                        if (style) {
+                          consultantBars.push({ style, percentage: row.percentage });
+                        }
+                      });
+                    } else if (s.type === 'freelance') {
+                      const rows = (m.freelanceStaffing || []).filter(row => s.talentIds.includes(row.id));
+                      rows.forEach(row => {
+                        const style = getBarStyles(row.startDate, row.endDate);
+                        if (style) {
+                          consultantBars.push({ style, percentage: row.percentage });
+                        }
+                      });
+                    } else if (s.type === 'subcontractor') {
+                      const rows = (m.subcontractorStaffing || []).filter(row => s.talentIds.includes(row.id));
+                      rows.forEach(row => {
+                        const style = getBarStyles(row.startDate, row.endDate);
+                        if (style) {
+                          consultantBars.push({ style, percentage: row.percentage });
+                        }
+                      });
+                    }
+
+                    const staffOccupancy = (() => {
+                      let percentages: number[] = [];
+                      if (s.type === 'internal') {
+                        percentages = (m.internalStaffing || []).filter(st => s.talentIds.includes(st.userId) || s.talentIds.includes(st.collaboratorId)).map(st => st.percentage);
+                      } else if (s.type === 'freelance') {
+                        percentages = (m.freelanceStaffing || []).filter(row => s.talentIds.includes(row.id)).map(st => st.percentage);
+                      } else if (s.type === 'subcontractor') {
+                        percentages = (m.subcontractorStaffing || []).filter(row => s.talentIds.includes(row.id)).map(st => st.percentage);
+                      }
+                      const uniquePct = Array.from(new Set(percentages));
+                      if (uniquePct.length === 0) return '0%';
+                      if (uniquePct.length === 1) return `${uniquePct[0]}%`;
+                      return uniquePct.map(p => `${p}%`).join(' / ');
+                    })();
 
                     return (
                       <div 
@@ -569,18 +637,22 @@ const Planning: React.FC<PlanningProps> = ({ state, updateState }) => {
                           <div className="flex items-center gap-2 shrink-0">
                             <span className="text-xs drop-shadow-sm" title="Humeur">{staffSentiment}</span>
                             <span className="text-[9px] font-black bg-navy/10 text-navy px-1.5 py-0.5 rounded shadow-sm border border-navy/5">
-                              {staffOccupancy}%
+                              {staffOccupancy}
                             </span>
                           </div>
                         </div>
                         <div className="flex-1 relative h-full">
-                          {cBarStyles && (
-                            <div className={`absolute top-1/2 -translate-y-1/2 h-10 rounded-lg border flex items-center justify-start gap-2 px-3 z-10 transition-transform shadow-sm overflow-hidden ${m.status === MissionStatus.TERMINEE ? 'opacity-40' : ''} ${s.type === 'freelance' ? 'bg-orange-50 border-orange-200 text-orange-800' : s.type === 'subcontractor' ? 'bg-purple-50 border-purple-200 text-purple-800' : 'bg-blue-50 border-blue-200 text-blue-800'}`} style={{ left: cBarStyles.left, width: cBarStyles.width }}>
-                              <div style={{ transform: `translateX(${getStickyOffset(cBarStyles.numericLeft, cBarStyles.numericWidth)}px)` }} className="flex-1 min-w-0 flex items-center justify-start gap-2 whitespace-nowrap animate-in fade-in duration-300 will-change-transform">
+                          {consultantBars.map((bar, bIdx) => (
+                            <div 
+                              key={bIdx}
+                              className={`absolute top-1/2 -translate-y-1/2 h-10 rounded-lg border flex items-center justify-start gap-2 px-3 z-10 transition-transform shadow-sm overflow-hidden ${m.status === MissionStatus.TERMINEE ? 'opacity-40' : ''} ${s.type === 'freelance' ? 'bg-orange-50 border-orange-200 text-orange-800' : s.type === 'subcontractor' ? 'bg-purple-50 border-purple-200 text-purple-800' : 'bg-blue-50 border-blue-200 text-blue-800'}`} 
+                              style={{ left: bar.style.left, width: bar.style.width }}
+                            >
+                              <div style={{ transform: `translateX(${getStickyOffset(bar.style.numericLeft, bar.style.numericWidth)}px)` }} className="flex-1 min-w-0 flex items-center justify-start gap-2 whitespace-nowrap animate-in fade-in duration-300 will-change-transform">
                                   <span className="text-[10px] font-bold">{s.name}</span>
                               </div>
                             </div>
-                          )}
+                          ))}
                         </div>
                       </div>
                     );
