@@ -19,7 +19,9 @@ import {
   Loader2,
   Euro,
   Layers,
-  ArrowUpDown
+  ArrowUpDown,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../services/supabase';
@@ -183,6 +185,9 @@ const XsellOpportunities: React.FC = () => {
     transfo_invoice_date: '',
     comments: ''
   });
+
+  // Analytics display state
+  const [showAnalytics, setShowAnalytics] = useState(false);
 
   // Import Modal & File preview
   const [isImportOpen, setIsImportOpen] = useState(false);
@@ -979,18 +984,26 @@ const XsellOpportunities: React.FC = () => {
   ) : null;
 
   return (
-    <div className="space-y-6">
+    <div className="h-[calc(100vh-8.5rem)] md:h-[calc(100vh-10.5rem)] flex flex-col overflow-hidden gap-4">
       {/* Header Controls */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm shrink-0">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <h2 className="text-xl font-bold font-sans tracking-tight text-navy uppercase select-none">Suivi Xsell</h2>
             {testAppBadge}
           </div>
-          <p className="text-xs text-gray-400">Pilotez et suivez de manière autonome les opportunités de vente croisée (cross-selling).</p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
+          <button 
+            type="button" 
+            onClick={() => setShowAnalytics(!showAnalytics)}
+            className="flex items-center gap-2 px-3 py-1.5 border border-amber-100 bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors rounded-lg text-xs font-bold uppercase tracking-tight font-sans"
+            id="xsell-btn-toggle-analytics"
+          >
+            {showAnalytics ? <EyeOff size={14} /> : <Eye size={14} />}
+            {showAnalytics ? "Masquer indicateurs" : "Afficher indicateurs"}
+          </button>
           <button 
             type="button" 
             onClick={handleExportExcel}
@@ -1011,7 +1024,7 @@ const XsellOpportunities: React.FC = () => {
       </div>
 
       {dbError && (
-        <div className="p-4 bg-red-50 border border-red-100 rounded-2xl text-red-600 text-xs flex items-center gap-3 font-bold">
+        <div className="p-4 bg-red-50 border border-red-100 rounded-2xl text-red-600 text-xs flex items-center gap-3 font-bold shrink-0">
           <AlertCircle size={18} className="shrink-0 text-red-500" />
           <span>{dbError}</span>
           <button onClick={fetchOpportunities} className="ml-auto underline hover:text-red-800">Réessayer</button>
@@ -1019,7 +1032,9 @@ const XsellOpportunities: React.FC = () => {
       )}
 
       {/* Bento Analytics Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4" id="xsell-analytics-grid">
+      {showAnalytics && (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 shrink-0" id="xsell-analytics-grid">
         {/* Total Metric Card */}
         <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between relative overflow-hidden" id="xsell-card-total">
           <div className="space-y-1 z-10">
@@ -1228,9 +1243,11 @@ const XsellOpportunities: React.FC = () => {
           )}
         </div>
       </div>
+        </>
+      )}
 
       {/* Filter Toolbar Controls */}
-      <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-4" id="xsell-toolbar">
+      <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-4 shrink-0" id="xsell-toolbar">
         <div className="flex flex-col md:flex-row gap-3 items-center justify-between">
           {/* Global Searchbox */}
           <div className="relative w-full md:w-80">
@@ -1351,33 +1368,33 @@ const XsellOpportunities: React.FC = () => {
       </div>
 
       {/* Main Tableau de Bord Viewport list table */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden flex flex-col" id="xsell-table-wrapper">
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden flex-1 min-h-0 flex flex-col" id="xsell-table-wrapper">
         {loading ? (
-          <div className="p-12 flex flex-col items-center justify-center space-y-3">
+          <div className="flex-1 flex flex-col items-center justify-center p-12 space-y-3">
             <Loader2 className="w-8 h-8 text-navy animate-spin" />
             <span className="text-xs text-gray-400 font-bold uppercase tracking-widest">Chargement des données...</span>
           </div>
         ) : filteredAndSortedOpportunities.length === 0 ? (
-          <div className="p-12 text-center text-gray-400 space-y-2 uppercase tracking-wide">
+          <div className="flex-1 flex flex-col items-center justify-center p-12 text-center text-gray-400 space-y-2 uppercase tracking-wide">
             <p className="text-sm font-bold">Aucune opportunité recensée.</p>
             <p className="text-[10px] text-gray-300 font-bold tracking-tight">Utilisez l'import ou créez une opportunité pour l'ajouter.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto relative scrollbar-hide">
+          <div className="overflow-auto flex-1 relative" id="xsell-table-scroll-container">
             <table className="w-full text-left border-separate border-spacing-0" id="xsell-main-table">
-              <thead>
-                <tr className="text-[9px] uppercase text-gray-400 font-bold select-none bg-white border-b">
-                  <th className="p-3 border-b hover:bg-gray-50 cursor-pointer transition-colors" onClick={() => handleSort('year')}>Année <ArrowUpDown size={10} className="inline ml-1 opacity-20" /></th>
-                  <th className="p-3 border-b hover:bg-gray-50 cursor-pointer transition-colors" onClick={() => handleSort('account_owner')}>Responsable <ArrowUpDown size={10} className="inline ml-1 opacity-20" /></th>
-                  <th className="p-3 border-b hover:bg-gray-50 cursor-pointer transition-colors" onClick={() => handleSort('account_name')}>Compte Client <ArrowUpDown size={10} className="inline ml-1 opacity-20" /></th>
-                  <th className="p-3 border-b hover:bg-gray-50 cursor-pointer transition-colors" onClick={() => handleSort('beneficiary_entity')}>Entité Bénéf. <ArrowUpDown size={10} className="inline ml-1 opacity-20" /></th>
-                  <th className="p-3 border-b hover:bg-gray-50 cursor-pointer transition-colors" onClick={() => handleSort('subject')}>Sujet Xsell <ArrowUpDown size={10} className="inline ml-1 opacity-20" /></th>
-                  <th className="p-3 border-b hover:bg-gray-50 cursor-pointer transition-colors" onClick={() => handleSort('status')}>Statut <ArrowUpDown size={10} className="inline ml-1 opacity-20" /></th>
-                  <th className="p-3 border-b hover:bg-gray-50 cursor-pointer text-right min-w-[100px]" onClick={() => handleSort('estimated_revenue')}>CA Estimé <ArrowUpDown size={10} className="inline ml-1 opacity-20" /></th>
-                  <th className="p-3 border-b text-right cursor-pointer hover:bg-gray-50" onClick={() => handleSort('refac_percentage')}>% Refac. <ArrowUpDown size={10} className="inline ml-1 opacity-20" /></th>
-                  <th className="p-3 border-b hover:bg-gray-50 cursor-pointer text-right min-w-[110px]" onClick={() => handleSort('amount_to_invoice')}>Montant Transfo <ArrowUpDown size={10} className="inline ml-1 opacity-20" /></th>
-                  <th className="p-3 border-b">Facturé</th>
-                  <th className="p-3 border-b text-right"></th>
+              <thead className="sticky top-0 z-20 bg-white">
+                <tr className="text-[9px] uppercase text-gray-400 font-bold select-none border-b">
+                  <th className="p-3 border-b bg-white hover:bg-gray-50 cursor-pointer transition-colors" onClick={() => handleSort('year')}>Année <ArrowUpDown size={10} className="inline ml-1 opacity-20" /></th>
+                  <th className="p-3 border-b bg-white hover:bg-gray-50 cursor-pointer transition-colors" onClick={() => handleSort('account_owner')}>Responsable <ArrowUpDown size={10} className="inline ml-1 opacity-20" /></th>
+                  <th className="p-3 border-b bg-white hover:bg-gray-50 cursor-pointer transition-colors" onClick={() => handleSort('account_name')}>Compte Client <ArrowUpDown size={10} className="inline ml-1 opacity-20" /></th>
+                  <th className="p-3 border-b bg-white hover:bg-gray-50 cursor-pointer transition-colors" onClick={() => handleSort('beneficiary_entity')}>Entité Bénéf. <ArrowUpDown size={10} className="inline ml-1 opacity-20" /></th>
+                  <th className="p-3 border-b bg-white hover:bg-gray-50 cursor-pointer transition-colors" onClick={() => handleSort('subject')}>Sujet Xsell <ArrowUpDown size={10} className="inline ml-1 opacity-20" /></th>
+                  <th className="p-3 border-b bg-white hover:bg-gray-50 cursor-pointer transition-colors" onClick={() => handleSort('status')}>Statut <ArrowUpDown size={10} className="inline ml-1 opacity-20" /></th>
+                  <th className="p-3 border-b bg-white hover:bg-gray-50 cursor-pointer text-right min-w-[100px]" onClick={() => handleSort('estimated_revenue')}>CA Estimé <ArrowUpDown size={10} className="inline ml-1 opacity-20" /></th>
+                  <th className="p-3 border-b bg-white text-right cursor-pointer hover:bg-gray-50" onClick={() => handleSort('refac_percentage')}>% Refac. <ArrowUpDown size={10} className="inline ml-1 opacity-20" /></th>
+                  <th className="p-3 border-b bg-white hover:bg-gray-50 cursor-pointer text-right min-w-[110px]" onClick={() => handleSort('amount_to_invoice')}>Montant Transfo <ArrowUpDown size={10} className="inline ml-1 opacity-20" /></th>
+                  <th className="p-3 border-b bg-white">Facturé</th>
+                  <th className="p-3 border-b bg-white text-right"></th>
                 </tr>
               </thead>
               <tbody className="divide-y text-navy">
