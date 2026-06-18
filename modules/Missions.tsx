@@ -352,6 +352,40 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
     return calculateMissionMetrics(editingMission, internalStaffing, freelanceStaffing, subcontractorStaffing, true);
   }, [editingMission, internalStaffing, freelanceStaffing, subcontractorStaffing, state.holidays]);
 
+  /**
+   * Calculates the equivalent full-time days (ETP) for both forecast and actual times.
+   */
+  const getETPDays = (row: { startDate: string; endDate: string; percentage: number }, staffingId: string) => {
+    const start = parseISO(row.startDate);
+    const end = parseISO(row.endDate);
+    if (!isValid(start) || !isValid(end) || !editingMission) {
+      return { workingDaysCount: 0, forecast: 0, actual: 0 };
+    }
+    
+    // Total business days in the period
+    const bDays = getBusinessDays(start, end, state.holidays, (editingMission.country as Country) || Country.FRANCE);
+    const workingDaysCount = bDays.length;
+
+    // Forecast ETP = working days * (percentage / 100)
+    const forecastETP = parseFloat((workingDaysCount * (row.percentage / 100)).toFixed(2));
+
+    // Actual ETP = sum of validated timesheet percentages / 100
+    // The staffing id (e.g. user ID or freelance/subcontractor component row ID) is used to find timesheets
+    const realEntries = state.timesheets.filter(t => 
+      t.missionId === editingMission.id && 
+      (t.collaboratorId === staffingId || t.userId === staffingId) && 
+      t.status === TimesheetStatus.VALIDE
+    );
+    const actualPercentageSum = realEntries.reduce((acc, t) => acc + t.percentage, 0);
+    const actualETP = parseFloat((actualPercentageSum / 100).toFixed(2));
+
+    return {
+      workingDaysCount,
+      forecast: forecastETP,
+      actual: actualETP
+    };
+  };
+
   const handleSaveMission = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingMission) return;
@@ -879,80 +913,95 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
                   <button type="button" onClick={() => setInternalStaffing([...internalStaffing, { id: generateId(), userId: '', startDate: editingMission.startDate!, endDate: editingMission.endDate!, percentage: 100, cjm: 500, tjm: 800 }])} className="text-[10px] font-black text-blue-600 hover:bg-blue-600 hover:text-white border border-blue-100 bg-blue-50/30 px-4 py-2 rounded-xl flex items-center gap-2 uppercase transition-all shadow-sm active:scale-95"><UserPlus size={16} /> Ajouter Interne</button>
                 </div>
                 <div className="flex gap-4 overflow-x-auto pb-6 snap-x no-scrollbar">
-                  {internalStaffing.map((row) => (
-                    <div key={row.id} className="w-[300px] shrink-0 p-5 border border-gray-100 rounded-2xl bg-white shadow-lg hover:shadow-xl transition-all relative group snap-start animate-in zoom-in duration-300">
-                      <button type="button" onClick={(e) => handleRemoveStaffingRow(e, 'internal', row.id)} className="absolute top-3 right-3 p-1.5 bg-red-50 text-red-500 hover:bg-red-600 hover:text-white rounded-full transition-all z-20 opacity-0 group-hover:opacity-100"><Trash2 size={14} /></button>
-                      <div className="space-y-5">
-                        <div className="space-y-1.5">
-                          <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Consultant</label>
-                          <select className="w-full border-b-2 py-2 text-sm font-black text-navy outline-none focus:border-blue-500 transition-colors bg-transparent cursor-pointer" value={row.userId} onChange={e => {
-                            const next = [...internalStaffing];
-                            const idx = next.findIndex(item => item.id === row.id);
-                            const collaborator = state.collaborators.find(u => u.id === e.target.value);
-                            if (idx !== -1) {
-                              next[idx].userId = e.target.value;
-                              next[idx].collaboratorId = e.target.value;
-                              if (collaborator) next[idx].cjm = collaborator.cjm; 
-                              setInternalStaffing(next);
-                            }
-                          }}>
-                            <option value="">Sélectionner...</option>
-                            {state.collaborators.map(u => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
-                          </select>
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
+                  {internalStaffing.map((row) => {
+                    const etp = getETPDays(row, row.userId || row.collaboratorId);
+                    return (
+                      <div key={row.id} className="w-[300px] shrink-0 p-5 border border-gray-100 rounded-2xl bg-white shadow-lg hover:shadow-xl transition-all relative group snap-start animate-in zoom-in duration-300">
+                        <button type="button" onClick={(e) => handleRemoveStaffingRow(e, 'internal', row.id)} className="absolute top-3 right-3 p-1.5 bg-red-50 text-red-500 hover:bg-red-600 hover:text-white rounded-full transition-all z-20 opacity-0 group-hover:opacity-100"><Trash2 size={14} /></button>
+                        <div className="space-y-5">
                           <div className="space-y-1.5">
-                            <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest">Début</label>
-                            <input type="date" className="w-full text-xs font-bold border-b py-1 outline-none focus:border-navy" value={row.startDate} onChange={e => {
+                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Consultant</label>
+                            <select className="w-full border-b-2 py-2 text-sm font-black text-navy outline-none focus:border-blue-500 transition-colors bg-transparent cursor-pointer" value={row.userId} onChange={e => {
                               const next = [...internalStaffing];
                               const idx = next.findIndex(item => item.id === row.id);
-                              if (idx !== -1) { next[idx].startDate = e.target.value; setInternalStaffing(next); }
+                              const collaborator = state.collaborators.find(u => u.id === e.target.value);
+                              if (idx !== -1) {
+                                next[idx].userId = e.target.value;
+                                next[idx].collaboratorId = e.target.value;
+                                if (collaborator) next[idx].cjm = collaborator.cjm; 
+                                setInternalStaffing(next);
+                              }
+                            }}>
+                              <option value="">Sélectionner...</option>
+                              {state.collaborators.map(u => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
+                            </select>
+                          </div>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-1.5">
+                              <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest">Début</label>
+                              <input type="date" className="w-full text-xs font-bold border-b py-1 outline-none focus:border-navy" value={row.startDate} onChange={e => {
+                                const next = [...internalStaffing];
+                                const idx = next.findIndex(item => item.id === row.id);
+                                if (idx !== -1) { next[idx].startDate = e.target.value; setInternalStaffing(next); }
+                              }} />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest">Fin</label>
+                              <input type="date" className="w-full text-xs font-bold border-b py-1 outline-none focus:border-navy" value={row.endDate} onChange={e => {
+                                const next = [...internalStaffing];
+                                const idx = next.findIndex(item => item.id === row.id);
+                                if (idx !== -1) { next[idx].endDate = e.target.value; setInternalStaffing(next); }
+                              }} />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-4 hidden">
+                            <div className="space-y-1.5">
+                              <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest">CJM (€)</label>
+                              <input 
+                                type="number" 
+                                className={`w-full border rounded-lg px-2.5 py-1.5 text-xs font-black text-navy outline-none ${isMissionFinished ? 'bg-gray-100 cursor-not-allowed opacity-70' : 'bg-white focus:ring-1 focus:ring-yellow-accent'}`}
+                                value={row.cjm} 
+                                disabled={isMissionFinished}
+                                title={isMissionFinished ? "Le CJM est figé car la mission est terminée" : "Modifiez manuellement le CJM si nécessaire"}
+                                onChange={e => {
+                                 const next = [...internalStaffing];
+                                 const idx = next.findIndex(item => item.id === row.id);
+                                 if (idx !== -1) { next[idx].cjm = parseInt(e.target.value) || 0; setInternalStaffing(next); }
+                               }} />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest">TJM (€)</label>
+                              <input type="number" className="w-full border rounded-lg px-2.5 py-1.5 text-xs font-black text-navy outline-none" value={row.tjm} onChange={e => {
+                                 const next = [...internalStaffing];
+                                 const idx = next.findIndex(item => item.id === row.id);
+                                 if (idx !== -1) { next[idx].tjm = parseInt(e.target.value) || 0; setInternalStaffing(next); }
+                               }} />
+                            </div>
+                          </div>
+                          <div className="space-y-3 pt-2">
+                            <div className="flex justify-between items-center"><label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5"><Percent size={12} className="text-blue-500" /> Charge</label><span className="text-xs font-black text-navy bg-blue-50 px-2 py-0.5 rounded border border-blue-100">{row.percentage}%</span></div>
+                            <input type="range" min="0" max="100" step="10" className="w-full h-1.5 bg-gray-100 rounded-lg appearance-none cursor-pointer accent-blue-600" value={row.percentage} onChange={e => {
+                                const next = [...internalStaffing];
+                                const idx = next.findIndex(item => item.id === row.id);
+                                if (idx !== -1) { next[idx].percentage = parseInt(e.target.value) || 0; setInternalStaffing(next); }
                             }} />
                           </div>
-                          <div className="space-y-1.5">
-                            <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest">Fin</label>
-                            <input type="date" className="w-full text-xs font-bold border-b py-1 outline-none focus:border-navy" value={row.endDate} onChange={e => {
-                              const next = [...internalStaffing];
-                              const idx = next.findIndex(item => item.id === row.id);
-                              if (idx !== -1) { next[idx].endDate = e.target.value; setInternalStaffing(next); }
-                            }} />
+
+                          {/* ETP Days stats */}
+                          <div className="pt-3.5 border-t border-gray-100/70 grid grid-cols-2 gap-2 text-center">
+                            <div className="bg-slate-50/70 rounded-xl p-2 border border-slate-100/50 flex flex-col justify-center items-center shadow-inner">
+                              <span className="block text-[8px] font-black text-gray-400 uppercase tracking-widest leading-normal">Prév. (ETP)</span>
+                              <span className="text-xs font-black text-navy">{etp.forecast} {etp.forecast > 1 ? 'jours' : 'jour'}</span>
+                            </div>
+                            <div className="bg-emerald-50/40 rounded-xl p-2 border border-emerald-100/30 flex flex-col justify-center items-center shadow-inner">
+                              <span className="block text-[8px] font-black text-emerald-600 uppercase tracking-widest leading-normal">Réel (ETP)</span>
+                              <span className="text-xs font-black text-emerald-700">{etp.actual} {etp.actual > 1 ? 'jours' : 'jour'}</span>
+                            </div>
                           </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-4 hidden">
-                          <div className="space-y-1.5">
-                            <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest">CJM (€)</label>
-                            <input 
-                              type="number" 
-                              className={`w-full border rounded-lg px-2.5 py-1.5 text-xs font-black text-navy outline-none ${isMissionFinished ? 'bg-gray-100 cursor-not-allowed opacity-70' : 'bg-white focus:ring-1 focus:ring-yellow-accent'}`}
-                              value={row.cjm} 
-                              disabled={isMissionFinished}
-                              title={isMissionFinished ? "Le CJM est figé car la mission est terminée" : "Modifiez manuellement le CJM si nécessaire"}
-                              onChange={e => {
-                               const next = [...internalStaffing];
-                               const idx = next.findIndex(item => item.id === row.id);
-                               if (idx !== -1) { next[idx].cjm = parseInt(e.target.value) || 0; setInternalStaffing(next); }
-                            }} />
-                          </div>
-                          <div className="space-y-1.5">
-                            <label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest">TJM (€)</label>
-                            <input type="number" className="w-full border rounded-lg px-2.5 py-1.5 text-xs font-black text-navy outline-none" value={row.tjm} onChange={e => {
-                               const next = [...internalStaffing];
-                               const idx = next.findIndex(item => item.id === row.id);
-                               if (idx !== -1) { next[idx].tjm = parseInt(e.target.value) || 0; setInternalStaffing(next); }
-                            }} />
-                          </div>
-                        </div>
-                        <div className="space-y-3 pt-2">
-                          <div className="flex justify-between items-center"><label className="block text-[9px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5"><Percent size={12} className="text-blue-500" /> Charge</label><span className="text-xs font-black text-navy bg-blue-50 px-2 py-0.5 rounded border border-blue-100">{row.percentage}%</span></div>
-                          <input type="range" min="0" max="100" step="10" className="w-full h-1.5 bg-gray-100 rounded-lg appearance-none cursor-pointer accent-blue-600" value={row.percentage} onChange={e => {
-                              const next = [...internalStaffing];
-                              const idx = next.findIndex(item => item.id === row.id);
-                              if (idx !== -1) { next[idx].percentage = parseInt(e.target.value) || 0; setInternalStaffing(next); }
-                          }} />
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </section>
 
@@ -963,10 +1012,12 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
                   <button type="button" onClick={() => setFreelanceStaffing([...freelanceStaffing, { id: generateId(), firstName: '', lastName: '', entity: '', startDate: editingMission.startDate!, endDate: editingMission.endDate!, cjm: 800, tjm: 1200, percentage: 100 }])} className="text-[10px] font-black text-orange-600 hover:bg-orange-600 hover:text-white border border-orange-100 bg-orange-50/30 px-4 py-2 rounded-xl flex items-center gap-2 uppercase transition-all shadow-sm active:scale-95"><UserPlus size={16} /> Ajouter Freelance</button>
                 </div>
                 <div className="flex gap-4 overflow-x-auto pb-6 snap-x no-scrollbar">
-                  {freelanceStaffing.map((row) => (
-                    <div key={row.id} className="w-[300px] shrink-0 p-5 border border-orange-100/50 rounded-2xl bg-orange-50/5 shadow-md relative group snap-start animate-in zoom-in duration-300">
-                      <button type="button" onClick={(e) => handleRemoveStaffingRow(e, 'freelance', row.id)} className="absolute top-3 right-3 p-1.5 bg-red-50 text-red-500 hover:bg-red-600 hover:text-white rounded-full transition-all z-20 opacity-0 group-hover:opacity-100"><Trash2 size={14} /></button>
-                      <div className="space-y-4">
+                  {freelanceStaffing.map((row) => {
+                    const etp = getETPDays(row, row.id);
+                    return (
+                      <div key={row.id} className="w-[300px] shrink-0 p-5 border border-orange-100/50 rounded-2xl bg-orange-50/5 shadow-md relative group snap-start animate-in zoom-in duration-300">
+                        <button type="button" onClick={(e) => handleRemoveStaffingRow(e, 'freelance', row.id)} className="absolute top-3 right-3 p-1.5 bg-red-50 text-red-500 hover:bg-red-600 hover:text-white rounded-full transition-all z-20 opacity-0 group-hover:opacity-100"><Trash2 size={14} /></button>
+                        <div className="space-y-4">
                         <div className="grid grid-cols-2 gap-3">
                           <div className="space-y-1">
                              <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest px-1">Prénom</label>
@@ -1032,9 +1083,22 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
                             }} />
                           </div>
                         </div>
+
+                        {/* ETP Days stats */}
+                        <div className="pt-3.5 border-t border-orange-100/30 grid grid-cols-2 gap-2 text-center">
+                          <div className="bg-slate-50/70 rounded-xl p-2 border border-slate-100/50 flex flex-col justify-center items-center shadow-inner">
+                            <span className="block text-[8px] font-black text-gray-400 uppercase tracking-widest leading-normal">Prév. (ETP)</span>
+                            <span className="text-xs font-black text-navy">{etp.forecast} {etp.forecast > 1 ? 'jours' : 'jour'}</span>
+                          </div>
+                          <div className="bg-emerald-50/40 rounded-xl p-2 border border-emerald-100/30 flex flex-col justify-center items-center shadow-inner">
+                            <span className="block text-[8px] font-black text-emerald-600 uppercase tracking-widest leading-normal">Réel (ETP)</span>
+                            <span className="text-xs font-black text-emerald-700">{etp.actual} {etp.actual > 1 ? 'jours' : 'jour'}</span>
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  ))}
+                  );
+                })}
                 </div>
               </section>
 
@@ -1045,10 +1109,12 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
                   <button type="button" onClick={() => setSubcontractorStaffing([...subcontractorStaffing, { id: generateId(), entity: '', startDate: editingMission.startDate!, endDate: editingMission.endDate!, amount: 10000, soldAmount: 15000, percentage: 100 }])} className="text-[10px] font-black text-purple-600 hover:bg-purple-600 hover:text-white border border-purple-100 bg-purple-50/30 px-4 py-2 rounded-xl flex items-center gap-2 uppercase transition-all shadow-sm active:scale-95"><UserPlus size={16} /> Ajouter Sous-traitant</button>
                 </div>
                 <div className="flex gap-4 overflow-x-auto pb-6 snap-x no-scrollbar">
-                  {subcontractorStaffing.map((row) => (
-                    <div key={row.id} className="w-[300px] shrink-0 p-5 border border-purple-100/50 rounded-2xl bg-purple-50/5 shadow-md relative group snap-start animate-in zoom-in duration-300">
-                      <button type="button" onClick={(e) => handleRemoveStaffingRow(e, 'subcontractor', row.id)} className="absolute top-3 right-3 p-1.5 bg-red-50 text-red-500 hover:bg-red-600 hover:text-white rounded-full transition-all z-20 opacity-0 group-hover:opacity-100"><Trash2 size={14} /></button>
-                      <div className="space-y-4">
+                  {subcontractorStaffing.map((row) => {
+                    const etp = getETPDays(row, row.id);
+                    return (
+                      <div key={row.id} className="w-[300px] shrink-0 p-5 border border-purple-100/50 rounded-2xl bg-purple-50/5 shadow-md relative group snap-start animate-in zoom-in duration-300">
+                        <button type="button" onClick={(e) => handleRemoveStaffingRow(e, 'subcontractor', row.id)} className="absolute top-3 right-3 p-1.5 bg-red-50 text-red-500 hover:bg-red-600 hover:text-white rounded-full transition-all z-20 opacity-0 group-hover:opacity-100"><Trash2 size={14} /></button>
+                        <div className="space-y-4">
                         <div className="space-y-1.5">
                           <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Entité Juridique</label>
                           <input placeholder="Nom de la société..." className="w-full border-b py-2 text-xs font-black text-navy outline-none focus:border-purple-500 bg-transparent" value={row.entity} onChange={e => {
@@ -1081,9 +1147,22 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
                             }} />
                           </div>
                         </div>
+
+                        {/* ETP Days stats */}
+                        <div className="pt-3.5 border-t border-purple-100/30 grid grid-cols-2 gap-2 text-center">
+                          <div className="bg-slate-50/70 rounded-xl p-2 border border-slate-100/50 flex flex-col justify-center items-center shadow-inner">
+                            <span className="block text-[8px] font-black text-gray-400 uppercase tracking-widest leading-normal">Prév. (ETP)</span>
+                            <span className="text-xs font-black text-navy">{etp.forecast} {etp.forecast > 1 ? 'jours' : 'jour'}</span>
+                          </div>
+                          <div className="bg-emerald-50/40 rounded-xl p-2 border border-emerald-100/30 flex flex-col justify-center items-center shadow-inner">
+                            <span className="block text-[8px] font-black text-emerald-600 uppercase tracking-widest leading-normal">Réel (ETP)</span>
+                            <span className="text-xs font-black text-emerald-700">{etp.actual} {etp.actual > 1 ? 'jours' : 'jour'}</span>
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  ))}
+                  );
+                })}
                 </div>
               </section>
 
