@@ -993,14 +993,6 @@ const XsellOpportunities: React.FC = () => {
         <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
           <button 
             type="button" 
-            onClick={() => setIsImportOpen(true)}
-            className="flex items-center gap-2 px-3 py-1.5 border border-emerald-100 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors rounded-lg text-xs font-bold uppercase tracking-tight font-sans"
-            id="xsell-btn-import"
-          >
-            <Upload size={14} /> Importer Excel
-          </button>
-          <button 
-            type="button" 
             onClick={handleExportExcel}
             className="flex items-center gap-2 px-3 py-1.5 border border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors rounded-lg text-xs font-bold uppercase tracking-tight font-sans"
             id="xsell-btn-export"
@@ -1062,7 +1054,7 @@ const XsellOpportunities: React.FC = () => {
         <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between relative overflow-hidden" id="xsell-card-estimated-rev">
           <div className="space-y-1 z-10 font-sans">
             <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">CA Bénéficiaire Estimé</span>
-            <div className="text-xl font-black text-black truncate">{formatCurrency(metrics.totalEstRevenue)}</div>
+            <div className="text-xl font-medium text-black truncate">{formatCurrency(metrics.totalEstRevenue)}</div>
             <div className="text-[11px] font-bold text-gray-500 flex items-center gap-1.5 mt-1">
               <span className="w-1.5 h-1.5 rounded-full bg-black inline-block"></span>
               <span>Entités Groupe EPSA</span>
@@ -1077,7 +1069,7 @@ const XsellOpportunities: React.FC = () => {
         <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between relative overflow-hidden" id="xsell-card-invoiced-trans">
           <div className="space-y-1 z-10 font-sans">
             <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">CA prév. Transfo à facturer</span>
-            <div className="text-xl font-black text-emerald-600 truncate">{formatCurrency(metrics.transfoInProgress)}</div>
+            <div className="text-xl font-medium text-emerald-600 truncate">{formatCurrency(metrics.transfoInProgress)}</div>
             <div className="text-[11px] font-bold text-gray-500 flex items-center gap-1.5 mt-1">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
               <span>mission en cours</span>
@@ -1092,7 +1084,7 @@ const XsellOpportunities: React.FC = () => {
         <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between relative overflow-hidden" id="xsell-card-savings">
           <div className="space-y-1 z-10 font-sans">
             <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">CA Transfo facturé</span>
-            <div className="text-xl font-black text-green-500 truncate">{formatCurrency(metrics.transfoCompleted)}</div>
+            <div className="text-xl font-medium text-green-500 truncate">{formatCurrency(metrics.transfoCompleted)}</div>
             <div className="text-[11px] font-bold text-gray-500 flex items-center gap-1.5 mt-1">
               <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block"></span>
               <span>mission terminée</span>

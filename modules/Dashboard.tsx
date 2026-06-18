@@ -1189,7 +1189,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
           <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between relative overflow-hidden flex-1 min-w-0">
             <div className="space-y-1 z-10 min-w-0 w-full">
               <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">CA Bénéficiaire Estimé</span>
-              <div className="text-xl font-black text-black truncate">{formatCurrencyXsell(xsellMetrics.totalEstRevenue)}</div>
+              <div className="text-xl font-medium text-black truncate">{formatCurrencyXsell(xsellMetrics.totalEstRevenue)}</div>
               <div className="text-[11px] font-bold text-gray-500 flex items-center gap-1.5 mt-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-black inline-block"></span>
                 <span>Entités Groupe EPSA</span>
@@ -1204,7 +1204,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
           <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between relative overflow-hidden flex-1 min-w-0">
             <div className="space-y-1 z-10 min-w-0 w-full">
               <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">CA prév. Transfo à facturer</span>
-              <div className="text-xl font-black text-emerald-600 truncate">{formatCurrencyXsell(xsellMetrics.transfoInProgress)}</div>
+              <div className="text-xl font-medium text-emerald-600 truncate">{formatCurrencyXsell(xsellMetrics.transfoInProgress)}</div>
               <div className="text-[11px] font-bold text-gray-500 flex items-center gap-1.5 mt-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
                 <span>mission en cours</span>
@@ -1219,7 +1219,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
           <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-between relative overflow-hidden flex-1 min-w-0">
             <div className="space-y-1 z-10 min-w-0 w-full">
               <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">CA Transfo facturé</span>
-              <div className="text-xl font-black text-green-500 truncate">{formatCurrencyXsell(xsellMetrics.transfoCompleted)}</div>
+              <div className="text-xl font-medium text-green-500 truncate">{formatCurrencyXsell(xsellMetrics.transfoCompleted)}</div>
               <div className="text-[11px] font-bold text-gray-500 flex items-center gap-1.5 mt-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block"></span>
                 <span>mission terminée</span>

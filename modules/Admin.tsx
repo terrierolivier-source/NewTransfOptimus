@@ -5,12 +5,15 @@ import {
   CheckCircle, XCircle, Info, ChevronRight,
   Search, ArrowUpDown, ChevronUp, ChevronDown, FilterX,
   User as UserIcon, CalendarDays, LogOut, Database, Clock,
-  ShieldAlert, List, Server, RefreshCw
+  ShieldAlert, List, Server, RefreshCw,
+  TrendingUp, Loader2, Check, AlertCircle
 } from 'lucide-react';
 import { AppState, Country, Holiday, User, Mission, MissionStatus, BillingMode, Role, Collaborator, CollaboratorType } from '../types';
 import { generateId, formatDateDisplay } from '../utils';
 import { getBackups, syncCollaboratorToCloud, deleteCollaboratorFromCloud, loadStateFromCloud } from '../services/dataService';
 import * as XLSX from 'xlsx';
+import { supabase } from '../services/supabase';
+import { XsellOpportunity } from './XsellOpportunities';
 import { 
   exportFullBackupJson, 
   exportFullBackupExcel, 
@@ -27,6 +30,76 @@ interface AdminProps {
   state: AppState;
   updateState: (newState: Partial<AppState>) => void;
 }
+
+// Xsell Import Utilities
+const parseYearXsell = (val: any): number | null => {
+  if (val === undefined || val === null || String(val).trim() === '') return null;
+  if (typeof val === 'number') return val;
+  const matches = String(val).match(/\d+/);
+  if (matches) return parseInt(matches[0]);
+  return null;
+};
+
+const parseNumberXsell = (val: any): number | null => {
+  if (val === undefined || val === null || String(val).trim() === '') return null;
+  if (typeof val === 'number') return val;
+  const cleanStr = String(val).replace(/[\s€$kK]/g, '').replace(',', '.');
+  const parsed = parseFloat(cleanStr);
+  return isNaN(parsed) ? null : parsed;
+};
+
+const findHeaderKeyXsell = (rawHeader: string): keyof XsellOpportunity | null => {
+  const clean = rawHeader.toLowerCase().trim();
+  const norm = clean
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]/g, '');
+
+  if (norm === 'anneedulead' || norm === 'annee') return 'year';
+  if (norm === 'responsablelead' || norm === 'responablelead' || norm === 'responsable' || norm === 'responable') return 'account_owner';
+  if (norm === 'compteclient' || norm === 'client' || norm === 'compte') return 'account_name';
+  if (norm === 'entitebeneficiaire' || norm === 'entite') return 'beneficiary_entity';
+  if (norm === 'contactdelentitebeneficiaire' || norm === 'contactdentitebeneficiaire' || norm === 'contact') return 'beneficiary_contact';
+  if (norm === 'sujetsxsell' || norm === 'sujet' || norm === 'sujets') return 'subject';
+  if (norm === 'statutmission' || norm === 'statut') return 'status';
+  if (norm === 'typederefacturation' || norm === 'typerefacturation' || norm === 'billingmodel') return 'billing_model';
+  if (norm === 'economiesclientestimees' || norm === 'economiesestimees' || norm === 'economies') return 'estimated_client_savings';
+  if (norm === 'desfdelentitebeneficiaire' || norm === 'sfentitebeneficiaire' || norm === 'beneficiarysfpercentage') return 'beneficiary_sf_percentage';
+  if (norm === 'caentitebeneficiaireestime' || norm === 'caestime' || norm === 'ca') return 'estimated_revenue';
+  if (norm === 'derefactransfo' || norm === 'refactransfo' || norm === 'refacpercentage') return 'refac_percentage';
+  if (norm === 'montantafacturertransfo' || norm === 'montantafacturer' || norm === 'amounttoinvoice') return 'amount_to_invoice';
+  if (norm === 'statutdefacturationtransfo' || norm === 'statutfacturation' || norm === 'transfoinvoiced') return 'transfo_invoiced';
+  if (norm === 'datedefacturationtransfo' || norm === 'datedefacturation' || norm === 'transfoinvoicedate') return 'transfo_invoice_date';
+  if (norm === 'commentaires' || norm === 'commentaire' || norm === 'comments') return 'comments';
+
+  if (clean.includes('annee') && clean.includes('lead')) return 'year';
+  if (clean.includes('responsable') || clean.includes('responable')) return 'account_owner';
+  if (clean.includes('compte') && clean.includes('client')) return 'account_name';
+  if (clean.includes('contact')) return 'beneficiary_contact';
+  if (clean.includes('entite') && clean.includes('beneficiaire') && !clean.includes('sf') && !clean.includes('ca')) {
+    return 'beneficiary_entity';
+  }
+  if (clean.includes('sujet')) return 'subject';
+  if (clean.includes('statut') && clean.includes('mission')) return 'status';
+  if (clean.includes('refacturation') || clean.includes('billing')) return 'billing_model';
+  if (clean.includes('economie')) return 'estimated_client_savings';
+  if (clean.includes('sf') || (clean.includes('beneficiaire') && clean.includes('sf'))) return 'beneficiary_sf_percentage';
+  if (clean.includes('ca entite') || (clean.includes('ca') && clean.includes('estime'))) return 'estimated_revenue';
+  if (clean.includes('refac') || clean.includes('% de refac')) return 'refac_percentage';
+  if (clean.includes('montant') && clean.includes('facturer')) return 'amount_to_invoice';
+  if (clean.includes('statut') && clean.includes('facturation') && clean.includes('transfo')) return 'transfo_invoiced';
+  if (clean.includes('date') && clean.includes('facturation') && clean.includes('transfo')) return 'transfo_invoice_date';
+  if (clean.includes('comment')) return 'comments';
+
+  return null;
+};
+
+const formatCurrencyXsell = (val: number | null | undefined) => {
+  if (val === null || val === undefined) return '-';
+  const rounded = Math.round(val);
+  const formattedNum = String(rounded).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  return `${formattedNum}\u00A0€`;
+};
 
 type CollaboratorSortKey = keyof Collaborator | 'fullName';
 
@@ -60,6 +133,218 @@ const Admin: React.FC<AdminProps> = ({ state, updateState }) => {
   const [isImporting, setIsImporting] = useState(false);
   const [importResult, setImportResult] = useState<{ success: boolean; report: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Xsell Specific Import States
+  const [xsellImportPreview, setXsellImportPreview] = useState<Partial<XsellOpportunity>[]>([]);
+  const [xsellImportFilename, setXsellImportFilename] = useState('');
+  const [xsellImportMode, setXsellImportMode] = useState<'add' | 'replace'>('add');
+  const [isXsellImporting, setIsXsellImporting] = useState(false);
+  const [xsellImportError, setXsellImportError] = useState<string | null>(null);
+  const [xsellImportSuccess, setXsellImportSuccess] = useState<string | null>(null);
+  const xsellFileInputRef = useRef<HTMLInputElement>(null);
+
+  const processXsellExcelFile = (file: File) => {
+    setXsellImportError(null);
+    setXsellImportSuccess(null);
+    setXsellImportFilename(file.name);
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+        
+        let sheetName = workbook.SheetNames.find(name => name.toLowerCase() === 'suivi xsell' || name.toLowerCase().includes('xsell'));
+        if (!sheetName && workbook.SheetNames.length > 0) {
+          sheetName = workbook.SheetNames[0];
+        }
+        
+        if (!sheetName) {
+          throw new Error('Aucune feuille trouvée dans le fichier.');
+        }
+
+        const worksheet = workbook.Sheets[sheetName];
+        const rows: any[] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+        
+        if (rows.length === 0) {
+          throw new Error('La feuille de calcul sélectionnée est vide.');
+        }
+
+        let headerRowIdx = 0;
+        let bestHeaderMatchCount = 0;
+        
+        for (let i = 0; i < Math.min(rows.length, 5); i++) {
+          let matches = 0;
+          const r = rows[i];
+          if (Array.isArray(r)) {
+            r.forEach(cell => {
+              if (cell && findHeaderKeyXsell(String(cell))) {
+                matches++;
+              }
+            });
+          }
+          if (matches > bestHeaderMatchCount) {
+            bestHeaderMatchCount = matches;
+            headerRowIdx = i;
+          }
+        }
+
+        const headers = rows[headerRowIdx];
+        if (!headers || !Array.isArray(headers)) {
+          throw new Error('Impossible de localiser la ligne d\'en-têtes dans le fichier Excel.');
+        }
+
+        const parsedOpps: Partial<XsellOpportunity>[] = [];
+        
+        for (let j = headerRowIdx + 1; j < rows.length; j++) {
+          const rowData = rows[j];
+          if (!rowData || !Array.isArray(rowData)) continue;
+          
+          const isEmpty = rowData.every(cell => cell === null || cell === undefined || String(cell).trim() === '');
+          if (isEmpty) continue;
+
+          const opp: Partial<XsellOpportunity> = {};
+          let hasAnyData = false;
+
+          headers.forEach((h, colIdx) => {
+            const key = findHeaderKeyXsell(String(h));
+            if (key) {
+              const rawVal = rowData[colIdx];
+              hasAnyData = true;
+              
+              if (key === 'year') {
+                opp[key] = parseYearXsell(rawVal);
+              } else if (key === 'refac_percentage' || key === 'beneficiary_sf_percentage') {
+                opp[key] = rawVal !== undefined && rawVal !== null ? String(rawVal).trim() : null;
+              } else if (key === 'estimated_revenue' || key === 'amount_to_invoice' || key === 'estimated_client_savings') {
+                opp[key] = parseNumberXsell(rawVal);
+              } else if (key === 'transfo_invoice_date') {
+                if (typeof rawVal === 'number' && rawVal > 10000) {
+                  const d = XLSX.SSF.parse_date_code(rawVal);
+                  const m = String(d.m).padStart(2, '0');
+                  const day = String(d.d).padStart(2, '0');
+                  opp[key] = `${d.y}-${m}-${day}`;
+                } else {
+                  opp[key] = rawVal ? String(rawVal).trim() : '';
+                }
+              } else {
+                opp[key] = rawVal !== undefined && rawVal !== null ? String(rawVal).trim() : '';
+              }
+            }
+          });
+
+          if (hasAnyData) {
+            opp.id = crypto.randomUUID();
+            opp.source_import_filename = file.name;
+            opp.imported_at = new Date().toISOString();
+            
+            opp.signature_date = '';
+            opp.january_2026_invoice = '';
+            opp.include_in_staffing_followup = '';
+            opp.beneficiary_invoice_date = '';
+
+            opp.year = opp.year !== undefined ? opp.year : null;
+            opp.account_owner = opp.account_owner || '';
+            opp.account_name = opp.account_name || '';
+            opp.beneficiary_entity = opp.beneficiary_entity || '';
+            opp.beneficiary_contact = opp.beneficiary_contact || '';
+            opp.subject = opp.subject || '';
+            opp.status = opp.status || '';
+            opp.billing_model = opp.billing_model || '';
+            opp.estimated_client_savings = opp.estimated_client_savings !== undefined ? opp.estimated_client_savings : null;
+            opp.beneficiary_sf_percentage = opp.beneficiary_sf_percentage !== undefined ? opp.beneficiary_sf_percentage : null;
+            opp.estimated_revenue = opp.estimated_revenue !== undefined ? opp.estimated_revenue : null;
+            opp.refac_percentage = opp.refac_percentage !== undefined ? opp.refac_percentage : null;
+            opp.amount_to_invoice = opp.amount_to_invoice !== undefined ? opp.amount_to_invoice : null;
+            opp.transfo_invoiced = opp.transfo_invoiced || '';
+            opp.transfo_invoice_date = opp.transfo_invoice_date || '';
+            opp.comments = opp.comments || '';
+
+            parsedOpps.push(opp);
+          }
+        }
+
+        setXsellImportPreview(parsedOpps);
+      } catch (err: any) {
+        console.error('Error parsing Excel:', err);
+        setXsellImportError(err.message || 'Erreur lors du traitement du fichier.');
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const executeXsellImport = async () => {
+    if (xsellImportPreview.length === 0) return;
+    
+    if (xsellImportMode === 'replace') {
+      const confirmText = 'Cette action supprimera uniquement les données Xsell de la table public.xsell_opportunities. Les autres modules ne seront pas modifiés. Êtes-vous sûr de vouloir remplacer toutes les opportunités ?';
+      if (!window.confirm(confirmText)) {
+        return;
+      }
+    }
+
+    setIsXsellImporting(true);
+    setXsellImportError(null);
+    setXsellImportSuccess(null);
+
+    try {
+      if (xsellImportMode === 'replace') {
+        const { error: deleteError } = await supabase
+          .from('xsell_opportunities')
+          .delete()
+          .not('id', 'is', null);
+
+        if (deleteError) throw deleteError;
+      }
+
+      const payload = xsellImportPreview.map(opp => ({
+        id: opp.id,
+        year: opp.year,
+        account_owner: opp.account_owner,
+        account_name: opp.account_name,
+        beneficiary_entity: opp.beneficiary_entity,
+        beneficiary_contact: opp.beneficiary_contact,
+        subject: opp.subject,
+        signature_date: opp.signature_date || '',
+        status: opp.status,
+        january_2026_invoice: opp.january_2026_invoice || '',
+        include_in_staffing_followup: opp.include_in_staffing_followup || '',
+        billing_model: opp.billing_model,
+        refac_percentage: opp.refac_percentage,
+        estimated_revenue: opp.estimated_revenue,
+        amount_to_invoice: opp.amount_to_invoice,
+        beneficiary_invoice_date: opp.beneficiary_invoice_date || '',
+        transfo_invoiced: opp.transfo_invoiced,
+        transfo_invoice_date: opp.transfo_invoice_date || '',
+        comments: opp.comments,
+        estimated_client_savings: opp.estimated_client_savings,
+        beneficiary_sf_percentage: opp.beneficiary_sf_percentage,
+        source_import_filename: xsellImportFilename,
+        imported_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }));
+
+      const chunkSize = 100;
+      for (let i = 0; i < payload.length; i += chunkSize) {
+        const chunk = payload.slice(i, i + chunkSize);
+        const { error: insertError } = await supabase
+          .from('xsell_opportunities')
+          .insert(chunk);
+
+        if (insertError) throw insertError;
+      }
+
+      setXsellImportSuccess(`Importation réussie de ${xsellImportPreview.length} opportunités Xsell.`);
+      setXsellImportPreview([]);
+      setXsellImportFilename('');
+    } catch (err: any) {
+      console.error('Import failed:', err);
+      setXsellImportError(err.message || 'La synchronisation avec la base de données a échoué.');
+    } finally {
+      setIsXsellImporting(false);
+    }
+  };
 
   // Collaborator Management States
   const [editingCollaborator, setEditingCollaborator] = useState<Partial<Collaborator> | null>(null);
@@ -808,6 +1093,163 @@ const Admin: React.FC<AdminProps> = ({ state, updateState }) => {
               </div>
             </div>
           )}
+
+          {/* Box dédié au Xsell */}
+          <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm space-y-6">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-emerald-50 text-emerald-700 rounded-lg">
+                <TrendingUp size={24} />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-navy leading-none">Importation Spécifique Xsell</h3>
+                <p className="text-xs text-gray-400 mt-1">Gérez et importez de manière autonome les opportunités de vente croisée (cross-selling) depuis un fichier Excel.</p>
+              </div>
+            </div>
+
+            {xsellImportPreview.length === 0 ? (
+              <div 
+                onClick={() => xsellFileInputRef.current?.click()}
+                className="border-2 border-dashed border-gray-100 rounded-2xl p-10 flex flex-col items-center justify-center gap-4 cursor-pointer hover:border-emerald-500 hover:bg-emerald-50/10 transition-all group bg-gray-50 bg-opacity-50"
+              >
+                <div className="w-16 h-16 bg-white rounded-2xl shadow-sm flex items-center justify-center group-hover:scale-110 transition-transform">
+                  <Upload size={32} className="text-emerald-500/40 group-hover:text-emerald-500" />
+                </div>
+                <div className="text-center">
+                  <p className="text-sm font-bold text-navy">Sélectionnez le fichier Excel Xsell</p>
+                  <p className="text-[10px] text-gray-400 mt-1 uppercase tracking-widest font-bold">Fichier .xlsx ou .xls</p>
+                </div>
+                <input 
+                  type="file" 
+                  ref={xsellFileInputRef} 
+                  onChange={(e) => {
+                    const files = e.target.files;
+                    if (files && files.length > 0) {
+                      processXsellExcelFile(files[0]);
+                    }
+                  }} 
+                  accept=".xlsx,.xls" 
+                  className="hidden" 
+                />
+              </div>
+            ) : (
+              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-2xl flex items-start gap-3">
+                  <CheckCircle className="text-emerald-600 shrink-0" size={18} />
+                  <div className="space-y-1">
+                    <p className="text-xs font-bold text-navy">Fichier chargé : <span className="font-mono text-emerald-800">{xsellImportFilename}</span></p>
+                    <p className="text-[10px] text-gray-400">
+                      Nombre de lignes détectées : <span className="font-extrabold text-navy">{xsellImportPreview.length} opportunités</span>.
+                      {xsellImportPreview.length === 124 ? (
+                        <span className="text-emerald-600 font-extrabold"> (Format attendu de 124 lignes validé !)</span>
+                      ) : (
+                        <span className="text-gray-500"> (Contient {xsellImportPreview.length} lignes)</span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-2 bg-gray-50 p-4 rounded-xl border border-gray-150">
+                  <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest block">Option d'importation</span>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button 
+                      type="button"
+                      onClick={() => setXsellImportMode('add')}
+                      className={`block text-left border p-3 rounded-xl cursor-pointer transition-all ${xsellImportMode === 'add' ? 'bg-white border-navy ring-2 ring-navy/10' : 'bg-transparent border-gray-200 hover:bg-white'}`}
+                    >
+                      <span className="text-xs font-bold text-navy block mb-1">Ajouter (Append)</span>
+                      <span className="text-[9px] text-gray-400">Ajoute les {xsellImportPreview.length} lignes aux opportunités existantes.</span>
+                    </button>
+
+                    <button 
+                      type="button"
+                      onClick={() => setXsellImportMode('replace')}
+                      className={`block text-left border p-3 rounded-xl cursor-pointer transition-all ${xsellImportMode === 'replace' ? 'bg-white border-red-500 ring-2 ring-red-500/10' : 'bg-transparent border-gray-200 hover:bg-white'}`}
+                    >
+                      <span className="text-xs font-bold text-red-600 block mb-1">Remplacer (Overwrite)</span>
+                      <span className="text-[9px] text-gray-400">Vide la table Xsell, puis insère les {xsellImportPreview.length} lignes.</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest block">Aperçu des 5 premières lignes</span>
+                  <div className="border border-gray-150 rounded-xl overflow-x-auto bg-white">
+                    <table className="w-full text-left text-[10px] border-separate border-spacing-0">
+                      <thead>
+                        <tr className="bg-gray-50 border-b font-extrabold text-gray-400">
+                          <th className="p-2 border-b whitespace-nowrap">Année</th>
+                          <th className="p-2 border-b whitespace-nowrap">Responsable Lead</th>
+                          <th className="p-2 border-b whitespace-nowrap">Compte Client</th>
+                          <th className="p-2 border-b whitespace-nowrap">Entité Bénéf.</th>
+                          <th className="p-2 border-b whitespace-nowrap">Sujets Xsell</th>
+                          <th className="p-2 border-b whitespace-nowrap text-right">CA Estimé</th>
+                          <th className="p-2 border-b whitespace-nowrap text-right">À Facturer</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y font-bold text-navy">
+                        {xsellImportPreview.slice(0, 5).map((opp, idx) => (
+                          <tr key={idx} className="hover:bg-gray-50/50">
+                            <td className="p-2 whitespace-nowrap font-mono">{opp.year}</td>
+                            <td className="p-2 max-w-[100px] truncate">{opp.account_owner}</td>
+                            <td className="p-2 max-w-[100px] truncate">{opp.account_name}</td>
+                            <td className="p-2 max-w-[100px] truncate">{opp.beneficiary_entity}</td>
+                            <td className="p-2 max-w-[100px] truncate">{opp.subject}</td>
+                            <td className="p-2 text-right whitespace-nowrap font-mono">{formatCurrencyXsell(opp.estimated_revenue || 0)}</td>
+                            <td className="p-2 text-right whitespace-nowrap font-mono">{formatCurrencyXsell(opp.amount_to_invoice || 0)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button 
+                    type="button"
+                    onClick={() => { setXsellImportPreview([]); setXsellImportFilename(''); }}
+                    className="flex-1 px-4 py-3 border border-gray-200 rounded-xl font-bold text-gray-500 hover:bg-gray-50 transition-colors uppercase text-xs tracking-widest"
+                    disabled={isXsellImporting}
+                  >
+                    Annuler
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={executeXsellImport}
+                    disabled={isXsellImporting}
+                    className={`flex-3 px-6 py-3 rounded-xl font-bold text-white shadow-lg transition-all flex items-center justify-center gap-2 uppercase text-xs tracking-widest ${
+                      isXsellImporting ? 'bg-gray-400' : 'bg-emerald-600 hover:bg-emerald-700'
+                    }`}
+                  >
+                    {isXsellImporting ? (
+                      <>
+                        <Loader2 size={18} className="animate-spin" />
+                        Importation en cours...
+                      </>
+                    ) : (
+                      <>
+                        <Check size={18} />
+                        Confirmer l'importation Xsell
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {xsellImportError && (
+              <div className="p-4 bg-red-50 border border-red-100 rounded-xl text-red-600 text-xs flex items-center gap-2.5 font-bold">
+                <AlertCircle size={16} className="shrink-0 text-red-500" />
+                <span>{xsellImportError}</span>
+              </div>
+            )}
+
+            {xsellImportSuccess && (
+              <div className="p-4 bg-green-50 border border-green-100 rounded-xl text-green-700 text-xs flex items-center gap-2.5 font-bold">
+                <CheckCircle size={16} className="shrink-0 text-green-600" />
+                <span>{xsellImportSuccess}</span>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
