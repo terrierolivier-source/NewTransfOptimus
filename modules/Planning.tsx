@@ -41,9 +41,11 @@ import {
   CloudLightning,
   CalendarRange,
   CalendarClock,
-  Filter
+  Filter,
+  TableProperties
 } from 'lucide-react';
 import { getBusinessDays, getFiscalYear } from '../utils';
+import { MissionDetailModal } from '../components/MissionDetailModal';
 
 interface PlanningProps {
   state: AppState;
@@ -79,6 +81,7 @@ const Planning: React.FC<PlanningProps> = ({ state, updateState }) => {
   const [expandedMissions, setExpandedMissions] = useState<Set<string>>(new Set());
   const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
   const [scrollLeft, setScrollLeft] = useState(0);
+  const [selectedMissionForDetail, setSelectedMissionForDetail] = useState<Mission | null>(null);
 
   const viewStartDate = useMemo(() => {
     const d = parseISO(startDateStr);
@@ -544,6 +547,17 @@ const Planning: React.FC<PlanningProps> = ({ state, updateState }) => {
                         <div className="font-black text-navy text-[11px] uppercase truncate leading-tight tracking-tight">{m.clientName}</div>
                         <div className="text-[9px] text-gray-400 font-medium truncate mt-0.5">{m.name}</div>
                       </div>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedMissionForDetail(m);
+                        }}
+                        className="w-7 h-7 rounded-lg mr-2 flex items-center justify-center border border-slate-200 hover:border-navy hover:bg-navy/5 text-navy/60 hover:text-navy transition-all shrink-0 cursor-pointer"
+                        title="Détails du temps passé et futur"
+                      >
+                        <TableProperties size={13} />
+                      </button>
                       <div className={`w-9 h-9 rounded-lg flex flex-col items-center justify-center border shrink-0 shadow-sm ${marginColor}`}>
                         <span className="text-[9px] font-black leading-none">{Math.round(margin)}%</span>
                         <span className="text-[6px] font-bold uppercase mt-0.5 opacity-60">MG</span>
@@ -683,6 +697,13 @@ const Planning: React.FC<PlanningProps> = ({ state, updateState }) => {
           <span className="text-[9px] font-black text-navy/50 uppercase tracking-tighter">Mode Régie</span>
         </div>
       </div>
+      {selectedMissionForDetail && (
+        <MissionDetailModal
+          mission={selectedMissionForDetail}
+          onClose={() => setSelectedMissionForDetail(null)}
+          state={state}
+        />
+      )}
     </div>
   );
 };
