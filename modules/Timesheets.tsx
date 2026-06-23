@@ -96,6 +96,13 @@ const Timesheets: React.FC<TimesheetsProps> = ({
   const [validationPercentage, setValidationPercentage] = useState<number>(0);
   const [validationComment, setValidationComment] = useState<string>('');
 
+  // Saisie de congés périodiques states
+  const [isLeavePeriodModalOpen, setIsLeavePeriodModalOpen] = useState(false);
+  const [leaveStartDate, setLeaveStartDate] = useState('');
+  const [leaveEndDate, setLeaveEndDate] = useState('');
+  const [leavePercentage, setLeavePercentage] = useState<number>(100);
+  const [leaveOverwrite, setLeaveOverwrite] = useState(false);
+
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -114,6 +121,60 @@ const Timesheets: React.FC<TimesheetsProps> = ({
   ], [anchorWeek]);
 
   const selectedUser = useMemo(() => selectableUsers.find(u => u.id === selectedUserId), [selectableUsers, selectedUserId]);
+  
+  // Custom memo to compute timesheet entry conflicts on the selected range live
+  const leaveConflicts = useMemo(() => {
+    if (!selectedUserId || !leaveStartDate || !leaveEndDate) return [];
+    
+    try {
+      const start = parseISO(leaveStartDate);
+      const end = parseISO(leaveEndDate);
+      if (isNaN(start.getTime()) || isNaN(end.getTime()) || start > end) return [];
+      
+      const conflicts: Array<{ dateStr: string; date: Date; entry: any; name: string }> = [];
+      
+      let current = new Date(start);
+      while (current <= end) {
+        const dayOfWeek = current.getDay();
+        if (dayOfWeek !== 0 && dayOfWeek !== 6) { // Skip weekends
+          const isHolidayObj = state.holidays.find(h => 
+            h.country === selectedUser?.country && h.date === format(current, 'yyyy-MM-dd')
+          );
+          
+          if (!isHolidayObj) {
+            const weekStartStr = format(getMonday(current), 'yyyy-MM-dd');
+            const dayIdx = current.getDay() - 1;
+            
+            const entries = timesheets.filter(t => 
+              t.collaboratorId === selectedUserId &&
+              t.weekStart === weekStartStr &&
+              t.dayIndex === dayIdx &&
+              t.percentage > 0
+            );
+            
+            entries.forEach(entry => {
+              const category = CATEGORIES.find(c => c.id === (entry.activityType || entry.missionId));
+              const mission = entry.missionId ? state.missions.find(m => m.id === entry.missionId) : null;
+              const name = category ? category.label : (mission ? `${mission.clientName} - ${mission.name}` : 'Mission');
+              
+              conflicts.push({
+                dateStr: format(current, 'yyyy-MM-dd'),
+                date: new Date(current),
+                entry,
+                name
+              });
+            });
+          }
+        }
+        current = addDays(current, 1);
+      }
+      
+      return conflicts;
+    } catch (e) {
+      console.error(e);
+      return [];
+    }
+  }, [selectedUserId, leaveStartDate, leaveEndDate, timesheets, state.holidays, state.missions, selectedUser]);
   const isAdmin = state.currentUser?.isAdmin || state.currentUser?.grade === Role.DIRECTEUR_ASSOCIE;
   const isSelf = selectedUserId === state.currentUser?.id;
   const canEdit = isAdmin || (isSelf && ![Role.BUSINESS_DEV].includes(state.currentUser?.grade as Role));
@@ -466,6 +527,135 @@ const Timesheets: React.FC<TimesheetsProps> = ({
     }
   };
 
+  const handleSaveLeavePeriod = async () => {
+    if (!selectedUserId) return;
+    if (!leaveStartDate || !leaveEndDate) {
+      alert("Veuillez choisir une date de début et une date de fin.");
+      return;
+    }
+    
+    const start = parseISO(leaveStartDate);
+    const end = parseISO(leaveEndDate);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      alert("Dates invalides.");
+      return;
+    }
+    if (start > end) {
+      alert("La date de début doit être antérieure ou égale à la date de fin.");
+      return;
+    }
+    
+    try {
+      setSaveStatus('saving');
+      
+      const entriesToSync: TimesheetEntry[] = [];
+      
+      let current = new Date(start);
+      while (current <= end) {
+        const dayOfWeek = current.getDay();
+        if (dayOfWeek !== 0 && dayOfWeek !== 6) { // Skip weekends
+          const dStr = format(current, 'yyyy-MM-dd');
+          // Check if holiday
+          const isHolidayObj = state.holidays.find(h => 
+            h.country === selectedUser?.country && h.date === dStr
+          );
+          
+          if (!isHolidayObj) {
+            const weekStartStr = format(getMonday(current), 'yyyy-MM-dd');
+            const dayIdx = current.getDay() - 1;
+            
+            // Existing entries on this day
+            const existingDayEntries = timesheets.filter(t => 
+              t.collaboratorId === selectedUserId &&
+              t.weekStart === weekStartStr &&
+              t.dayIndex === dayIdx &&
+              t.percentage > 0
+            );
+            
+            if (existingDayEntries.length > 0) {
+              if (leaveOverwrite) {
+                // OVERWRITE:
+                // Set percentage = 0 for other non-CONGES records
+                existingDayEntries.forEach(t => {
+                  const isConge = t.activityType === 'CONGES' || t.missionId === 'CONGES';
+                  if (!isConge) {
+                    entriesToSync.push({
+                      ...t,
+                      percentage: 0,
+                      status: TimesheetStatus.VALIDE,
+                      updatedAt: new Date().toISOString()
+                    });
+                  }
+                });
+                
+                // Add or update CONGES
+                const existingConge = existingDayEntries.find(t => t.activityType === 'CONGES' || t.missionId === 'CONGES');
+                entriesToSync.push({
+                  id: existingConge?.id || crypto.randomUUID(),
+                  userId: selectedUserId,
+                  collaboratorId: selectedUserId,
+                  weekStart: weekStartStr,
+                  missionId: null,
+                  activityType: 'CONGES',
+                  dayIndex: dayIdx,
+                  percentage: leavePercentage,
+                  status: TimesheetStatus.VALIDE,
+                  comment: 'Congés périodiques',
+                  updatedAt: new Date().toISOString()
+                });
+              } else {
+                // Keep the record (do not overwrite)
+              }
+            } else {
+              // Create regular CONGES
+              entriesToSync.push({
+                id: crypto.randomUUID(),
+                userId: selectedUserId,
+                collaboratorId: selectedUserId,
+                weekStart: weekStartStr,
+                missionId: null,
+                activityType: 'CONGES',
+                dayIndex: dayIdx,
+                percentage: leavePercentage,
+                status: TimesheetStatus.VALIDE,
+                comment: 'Congés périodiques',
+                updatedAt: new Date().toISOString()
+              });
+            }
+          }
+        }
+        current = addDays(current, 1);
+      }
+      
+      if (entriesToSync.length === 0) {
+        alert("Aucun jour ouvré à enregistrer sans conflit.");
+        setSaveStatus('idle');
+        return;
+      }
+      
+      // Cloud sync
+      const saved = await syncTimesheetsToCloud(entriesToSync);
+      
+      // Atomic update inside local react state
+      entriesToSync.forEach(entry => {
+        upsertTimesheetInState(entry);
+      });
+      
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 2000);
+      
+      // Close modal & reset fields
+      setIsLeavePeriodModalOpen(false);
+      setLeaveStartDate('');
+      setLeaveEndDate('');
+      setLeavePercentage(100);
+      setLeaveOverwrite(false);
+    } catch (err) {
+      console.error("Failed to save leave period", err);
+      setSaveStatus('error');
+    }
+  };
+
   const modalInfo = useMemo(() => {
     if (!validatingEntry) return null;
     const mission = state.missions.find(m => m.id === validatingEntry.missionId);
@@ -528,6 +718,16 @@ const Timesheets: React.FC<TimesheetsProps> = ({
                 </option>
               ))}
             </select>
+            {selectedUserId && canEdit && (
+              <button 
+                type="button"
+                onClick={() => setIsLeavePeriodModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-700 hover:bg-red-150 hover:text-red-800 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all border border-red-200 shadow-sm cursor-pointer shrink-0"
+              >
+                <Palmtree size={12} className="stroke-[2.5]" />
+                Saisir une période de congés
+              </button>
+            )}
           </div>
         </div>
 
@@ -722,6 +922,119 @@ const Timesheets: React.FC<TimesheetsProps> = ({
                 <button onClick={handleConfirmValidation} className="flex-2 px-8 py-3 bg-navy text-white rounded-xl font-black uppercase text-[10px] tracking-[0.2em] hover:bg-navy/90 shadow-xl flex items-center justify-center gap-2 transition-all active:scale-95 group">
                     <Save size={16} className="text-yellow-accent group-hover:scale-110 transition-transform" /> 
                     Valider
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isLeavePeriodModalOpen && (
+        <div className="fixed inset-0 bg-navy/80 backdrop-blur-md z-[1000] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[24px] shadow-2xl w-full max-w-[460px] overflow-hidden animate-in zoom-in duration-300 border border-white/20">
+            <div className="px-6 py-4 text-white flex justify-between items-center shrink-0 bg-red-650 bg-red-600">
+              <div className="flex items-center gap-3 overflow-hidden">
+                <div className="p-2 bg-white/20 rounded-xl shrink-0 shadow-inner">
+                  <Palmtree size={20} className="text-white" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-black uppercase tracking-[0.1em] truncate">Enregistrer une période de congés</h3>
+                  <p className="text-[9px] text-white/50 font-bold uppercase truncate tracking-widest">{selectedUser?.name}</p>
+                </div>
+              </div>
+              <button onClick={() => setIsLeavePeriodModalOpen(false)} className="p-1.5 hover:bg-white/10 rounded-full transition-colors"><X size={20} /></button>
+            </div>
+            
+            <div className="p-6 space-y-5">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-[9px] font-black text-navy uppercase tracking-widest px-1">Date de début</label>
+                  <input 
+                    type="date" 
+                    value={leaveStartDate} 
+                    onChange={(e) => setLeaveStartDate(e.target.value)} 
+                    className="w-full bg-gray-50 border border-gray-100 rounded-xl p-3 text-xs font-semibold text-navy outline-none focus:ring-2 focus:ring-red-500/30 focus:bg-white transition-all shadow-inner" 
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[9px] font-black text-navy uppercase tracking-widest px-1">Date de fin</label>
+                  <input 
+                    type="date" 
+                    value={leaveEndDate} 
+                    onChange={(e) => setLeaveEndDate(e.target.value)} 
+                    className="w-full bg-gray-50 border border-gray-100 rounded-xl p-3 text-xs font-semibold text-navy outline-none focus:ring-2 focus:ring-red-500/30 focus:bg-white transition-all shadow-inner" 
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[9px] font-black text-navy uppercase tracking-widest px-1 block">Volume journalier (Part %)</label>
+                <div className="flex gap-2">
+                  {[100, 50, 25].map(val => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setLeavePercentage(val)}
+                      className={`flex-1 py-2.5 rounded-xl text-xs font-black uppercase transition-all border outline-none cursor-pointer ${leavePercentage === val ? 'bg-navy text-white border-navy shadow-md' : 'bg-gray-50 border-gray-100 text-navy hover:bg-gray-100'}`}
+                    >
+                      {val}% {val === 100 ? '(1 j)' : val === 50 ? '(0.5 j)' : '(0.25 j)'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Conflicts dynamic detection panel */}
+              {leaveConflicts.length > 0 && (
+                <div className="p-4 bg-orange-50 rounded-[20px] border border-orange-200/60 text-left space-y-2 max-w-full">
+                  <p className="text-[10px] font-black uppercase text-orange-900 tracking-wider">
+                    ⚠️ Conflits détectés ({leaveConflicts.length} jours) :
+                  </p>
+                  <div className="max-h-[120px] overflow-y-auto pr-1 space-y-1 text-[9px] font-bold text-orange-850 uppercase tracking-tight custom-scrollbar">
+                    {leaveConflicts.map((c, idx) => (
+                      <div key={idx} className="flex justify-between items-center bg-white/50 px-2.5 py-1.5 rounded-lg border border-orange-200/40 gap-4">
+                        <span className="shrink-0">{format(parseISO(c.dateStr), 'dd/MM/yyyy')}</span>
+                        <span className="truncate text-right text-[8px] font-black text-orange-950">{c.name} ({c.entry.percentage}%)</span>
+                      </div>
+                    ))}
+                  </div>
+                  
+                  <div className="pt-2.5 border-t border-orange-200/40 flex items-center justify-between gap-4">
+                    <span className="text-[9px] font-black text-orange-900 uppercase tracking-wider leading-tight">Écraser les saisies existantes ?</span>
+                    <div className="flex bg-orange-100 p-1 rounded-lg">
+                      <button
+                        type="button"
+                        onClick={() => setLeaveOverwrite(true)}
+                        className={`px-3 py-1 rounded-md text-[9px] font-black uppercase transition-all ${leaveOverwrite ? 'bg-white text-orange-900 shadow-sm' : 'text-orange-750 hover:bg-white/30'}`}
+                      >
+                        Oui
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLeaveOverwrite(false)}
+                        className={`px-3 py-1 rounded-md text-[9px] font-black uppercase transition-all ${!leaveOverwrite ? 'bg-white text-orange-900 shadow-sm' : 'text-orange-750 hover:bg-white/30'}`}
+                      >
+                        Non
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-2">
+                <button 
+                  type="button" 
+                  onClick={() => setIsLeavePeriodModalOpen(false)} 
+                  className="flex-1 py-3 border-2 border-gray-100 rounded-xl font-black text-gray-400 uppercase text-[10px] tracking-widest hover:bg-gray-50 transition-all cursor-pointer"
+                >
+                  Annuler
+                </button>
+                <button 
+                  type="button" 
+                  onClick={handleSaveLeavePeriod} 
+                  className="flex-1 py-3 bg-red-600 text-white rounded-xl font-black uppercase text-[10px] tracking-[0.2em] hover:bg-red-700 shadow-xl flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer group"
+                >
+                  <Save size={16} className="text-white group-hover:scale-110 transition-transform" /> 
+                  Enregistrer
                 </button>
               </div>
             </div>
