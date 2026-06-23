@@ -55,6 +55,24 @@ export interface XsellOpportunity {
   updated_at?: string;
 }
 
+const extractYearFromInvoiceDate = (dateStr: string | null | undefined): number | null => {
+  if (!dateStr) return null;
+  const s = String(dateStr).trim();
+  const mYmd = s.match(/^(\d{4})[-/]/);
+  if (mYmd) return parseInt(mYmd[1], 10);
+  const mDmy = s.match(/[-/](\d{4})$/);
+  if (mDmy) return parseInt(mDmy[1], 10);
+  const mAny = s.match(/\b(20\d{2})\b/);
+  if (mAny) return parseInt(mAny[1], 10);
+  return null;
+};
+
+const getOpportunityRefYear = (o: XsellOpportunity): number | null => {
+  const invoiceYear = extractYearFromInvoiceDate(o.transfo_invoice_date);
+  if (invoiceYear !== null) return invoiceYear;
+  return o.year;
+};
+
 const parseRefacPercentageToRatio = (val: string | null | undefined): number => {
   if (!val) return 0;
   const clean = String(val).trim().replace(',', '.');
@@ -137,7 +155,11 @@ const getTransfoInvoicedBadgeStyles = (val: string | null | undefined) => {
   }
 };
 
-const XsellOpportunities: React.FC = () => {
+interface XsellOpportunitiesProps {
+  globalFY?: string;
+}
+
+const XsellOpportunities: React.FC<XsellOpportunitiesProps> = ({ globalFY = 'FY26' }) => {
   // DB & State management
   const [opportunities, setOpportunities] = useState<XsellOpportunity[]>([]);
   const [loading, setLoading] = useState(true);
@@ -805,7 +827,10 @@ const XsellOpportunities: React.FC = () => {
   // Dynamic filter lists
   const filterOptions = useMemo(() => {
     const statuses = Array.from(new Set(opportunities.map(o => o.status).filter(Boolean))) as string[];
-    const years = Array.from(new Set(opportunities.map(o => String(o.year)).filter(y => y !== 'null' && y !== 'undefined'))) as string[];
+    const years = Array.from(new Set(opportunities.map(o => {
+      const yr = getOpportunityRefYear(o);
+      return yr ? String(yr) : null;
+    }).filter(Boolean))) as string[];
     const owners = Array.from(new Set(opportunities.map(o => o.account_owner).filter(Boolean))) as string[];
     const accounts = Array.from(new Set(opportunities.map(o => o.account_name).filter(Boolean))) as string[];
     const entities = Array.from(new Set(opportunities.map(o => o.beneficiary_entity).filter(Boolean))) as string[];
@@ -841,7 +866,10 @@ const XsellOpportunities: React.FC = () => {
 
     // Quick filters
     if (statusFilter !== 'All') result = result.filter(opp => opp.status === statusFilter);
-    if (yearFilter !== 'All') result = result.filter(opp => String(opp.year) === yearFilter);
+    if (yearFilter !== 'All') result = result.filter(opp => {
+      const refYear = getOpportunityRefYear(opp);
+      return refYear !== null && String(refYear) === yearFilter;
+    });
     if (ownerFilter !== 'All') result = result.filter(opp => opp.account_owner === ownerFilter);
     if (accountFilter !== 'All') result = result.filter(opp => opp.account_name === accountFilter);
     if (entityFilter !== 'All') result = result.filter(opp => opp.beneficiary_entity === entityFilter);
@@ -904,10 +932,35 @@ const XsellOpportunities: React.FC = () => {
 
   // Bento-Dashboard Analytics
   const metrics = useMemo(() => {
-    const list = filteredAndSortedOpportunities;
-    const totalEstRevenue = list.reduce((sum, o) => sum + (o.estimated_revenue || 0), 0);
-    const totalInvoiceTransfo = list.reduce((sum, o) => sum + (o.amount_to_invoice || 0), 0);
-    const totalSavings = list.reduce((sum, o) => sum + (o.estimated_client_savings || 0), 0);
+    // We compute metrics that ignore the year filter.
+    let listIgnoreYear = [...opportunities];
+    if (searchQuery.trim() !== '') {
+      const q = searchQuery.toLowerCase();
+      listIgnoreYear = listIgnoreYear.filter(opp => 
+        (opp.account_owner || '').toLowerCase().includes(q) ||
+        (opp.account_name || '').toLowerCase().includes(q) ||
+        (opp.beneficiary_entity || '').toLowerCase().includes(q) ||
+        (opp.subject || '').toLowerCase().includes(q) ||
+        (opp.comments || '').toLowerCase().includes(q)
+      );
+    }
+    if (statusFilter !== 'All') listIgnoreYear = listIgnoreYear.filter(opp => opp.status === statusFilter);
+    if (ownerFilter !== 'All') listIgnoreYear = listIgnoreYear.filter(opp => opp.account_owner === ownerFilter);
+    if (accountFilter !== 'All') listIgnoreYear = listIgnoreYear.filter(opp => opp.account_name === accountFilter);
+    if (entityFilter !== 'All') listIgnoreYear = listIgnoreYear.filter(opp => opp.beneficiary_entity === entityFilter);
+    if (billingModelFilter !== 'All') listIgnoreYear = listIgnoreYear.filter(opp => opp.billing_model === billingModelFilter);
+    if (invoicedFilter !== 'All') listIgnoreYear = listIgnoreYear.filter(opp => opp.transfo_invoiced === invoicedFilter);
+
+    // Filtered by globalFY for the CA indicators
+    const currentFYYear = parseInt(globalFY.replace('FY', ''), 10);
+    const listCurrentFY = listIgnoreYear.filter(o => {
+      const refYear = getOpportunityRefYear(o);
+      return refYear !== null && refYear === currentFYYear;
+    });
+
+    const totalEstRevenue = listCurrentFY.reduce((sum, o) => sum + (o.estimated_revenue || 0), 0);
+    const totalInvoiceTransfo = listCurrentFY.reduce((sum, o) => sum + (o.amount_to_invoice || 0), 0);
+    const totalSavings = listCurrentFY.reduce((sum, o) => sum + (o.estimated_client_savings || 0), 0);
 
     // Distribution of Status
     const statusCount: Record<string, number> = {
@@ -918,32 +971,36 @@ const XsellOpportunities: React.FC = () => {
       '05 - mission terminée': 0,
       'KO': 0
     };
-    list.forEach(o => {
+    listIgnoreYear.forEach(o => {
       const s = o.status || 'Non renseigné';
       statusCount[s] = (statusCount[s] || 0) + 1;
     });
 
-    const transfoInProgress = list
+    const transfoInProgress = listCurrentFY
       .filter(o => o.status === '04 - mission en cours')
       .reduce((sum, o) => sum + (o.amount_to_invoice || 0), 0);
-    const transfoCompleted = list
+
+    const countInProgress = listIgnoreYear.filter(o => o.status === '04 - mission en cours').length;
+
+    const transfoCompleted = listCurrentFY
       .filter(o => {
         const transValue = (o.transfo_invoiced || '').trim().toLowerCase();
         return transValue.includes('03 - facturé') || transValue === '03 - facturé';
       })
       .reduce((sum, o) => {
-        const estRevenue = o.estimated_revenue || 0;
-        const ratio = parseRefacPercentageToRatio(o.refac_percentage);
-        return sum + Math.round(estRevenue * ratio);
+        const amount = o.amount_to_invoice !== null && o.amount_to_invoice !== undefined
+          ? o.amount_to_invoice
+          : Math.round((o.estimated_revenue || 0) * parseRefacPercentageToRatio(o.refac_percentage));
+        return sum + amount;
       }, 0);
 
-    const epsaRevenue = list
+    const epsaRevenue = listCurrentFY
       .filter(o => (o.beneficiary_entity || '').toLowerCase().includes('epsa'))
       .reduce((sum, o) => sum + (o.estimated_revenue || 0), 0);
 
     // Top Owner
     const ownerRevenue: Record<string, number> = {};
-    list.forEach(o => {
+    listCurrentFY.forEach(o => {
       const ow = o.account_owner || 'Non renseigné';
       ownerRevenue[ow] = (ownerRevenue[ow] || 0) + (o.estimated_revenue || 0);
     });
@@ -953,7 +1010,7 @@ const XsellOpportunities: React.FC = () => {
 
     // Top Entity
     const entityRevenue: Record<string, number> = {};
-    list.forEach(o => {
+    listCurrentFY.forEach(o => {
       const ent = o.beneficiary_entity || 'Non renseigné';
       entityRevenue[ent] = (entityRevenue[ent] || 0) + (o.estimated_revenue || 0);
     });
@@ -962,20 +1019,30 @@ const XsellOpportunities: React.FC = () => {
       .sort((a, b) => b.value - a.value);
 
     return {
-      totalCount: list.length,
+      totalCount: listIgnoreYear.length,
       totalEstRevenue,
       totalInvoiceTransfo,
       totalSavings,
       statusCount,
       topOwners,
       topEntities,
-      countInProgress: statusCount['04 - mission en cours'] || 0,
+      countInProgress,
       countCompleted: statusCount['05 - mission terminée'] || 0,
       transfoInProgress,
       transfoCompleted,
       epsaRevenue
     };
-  }, [filteredAndSortedOpportunities]);
+  }, [
+    opportunities,
+    searchQuery,
+    statusFilter,
+    ownerFilter,
+    accountFilter,
+    entityFilter,
+    billingModelFilter,
+    invoicedFilter,
+    globalFY
+  ]);
 
   const testAppBadge = (import.meta as any).env.VITE_APP_ENV === 'TEST' ? (
     <span className="bg-amber-100 text-amber-800 text-[10px] font-black uppercase px-2.5 py-1 rounded border border-amber-200 tracking-wider">
@@ -1394,6 +1461,7 @@ const XsellOpportunities: React.FC = () => {
                   <th className="p-3 border-b bg-white text-right cursor-pointer hover:bg-gray-50" onClick={() => handleSort('refac_percentage')}>% Refac. <ArrowUpDown size={10} className="inline ml-1 opacity-20" /></th>
                   <th className="p-3 border-b bg-white hover:bg-gray-50 cursor-pointer text-right min-w-[110px]" onClick={() => handleSort('amount_to_invoice')}>Montant Transfo <ArrowUpDown size={10} className="inline ml-1 opacity-20" /></th>
                   <th className="p-3 border-b bg-white">Facturé</th>
+                  <th className="p-3 border-b bg-white hover:bg-gray-50 cursor-pointer transition-colors" onClick={() => handleSort('transfo_invoice_date')}>Date Facture <ArrowUpDown size={10} className="inline ml-1 opacity-20" /></th>
                   <th className="p-3 border-b bg-white text-right"></th>
                 </tr>
               </thead>
@@ -1408,7 +1476,7 @@ const XsellOpportunities: React.FC = () => {
                       setIsEditing(false);
                     }}
                   >
-                    <td className="p-3 whitespace-nowrap text-gray-500 font-mono text-[10px]">{opp.year}</td>
+                    <td className="p-3 whitespace-nowrap text-gray-500 font-mono text-[10px]">{getOpportunityRefYear(opp) || '-'}</td>
                     <td className="p-3 truncate max-w-[120px]">{opp.account_owner}</td>
                     <td className="p-3 truncate max-w-[130px] font-black text-navy">{opp.account_name}</td>
                     <td className="p-3 truncate max-w-[120px]">{opp.beneficiary_entity}</td>
@@ -1435,6 +1503,9 @@ const XsellOpportunities: React.FC = () => {
                           {opp.transfo_invoiced}
                         </span>
                       ) : '-'}
+                    </td>
+                    <td className="p-3 whitespace-nowrap text-gray-400 font-mono text-[10px]">
+                      {opp.transfo_invoice_date || '-'}
                     </td>
                     <td className="p-3 text-right">
                       <button className="p-1 text-gray-300 hover:text-navy hover:bg-gray-100 rounded transition-colors" aria-label="Afficher les détails">

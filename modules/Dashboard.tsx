@@ -124,9 +124,35 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
 
   const xsellMetrics = useMemo(() => {
     const list = xsellOpportunities;
-    const totalEstRevenue = list.reduce((sum, o) => sum + (o.estimated_revenue || 0), 0);
-    const totalInvoiceTransfo = list.reduce((sum, o) => sum + (o.amount_to_invoice || 0), 0);
-    const totalSavings = list.reduce((sum, o) => sum + (o.estimated_client_savings || 0), 0);
+
+    const extractYearFromInvoiceDateLocal = (dateStr: string | null | undefined): number | null => {
+      if (!dateStr) return null;
+      const s = String(dateStr).trim();
+      const mYmd = s.match(/^(\d{4})[-/]/);
+      if (mYmd) return parseInt(mYmd[1], 10);
+      const mDmy = s.match(/[-/](\d{4})$/);
+      if (mDmy) return parseInt(mDmy[1], 10);
+      const mAny = s.match(/\b(20\d{2})\b/);
+      if (mAny) return parseInt(mAny[1], 10);
+      return null;
+    };
+
+    const getOpportunityRefYearLocal = (o: typeof xsellOpportunities[number]): number | null => {
+      const invoiceYear = extractYearFromInvoiceDateLocal(o.transfo_invoice_date);
+      if (invoiceYear !== null) return invoiceYear;
+      return o.year;
+    };
+
+    // Filter by globalFY for the CA indicators
+    const currentFYYear = parseInt(globalFY.replace('FY', ''), 10);
+    const listCurrentFY = list.filter(o => {
+      const refYear = getOpportunityRefYearLocal(o);
+      return refYear !== null && refYear === currentFYYear;
+    });
+
+    const totalEstRevenue = listCurrentFY.reduce((sum, o) => sum + (o.estimated_revenue || 0), 0);
+    const totalInvoiceTransfo = listCurrentFY.reduce((sum, o) => sum + (o.amount_to_invoice || 0), 0);
+    const totalSavings = listCurrentFY.reduce((sum, o) => sum + (o.estimated_client_savings || 0), 0);
 
     // Distribution of Status
     const statusCount: Record<string, number> = {
@@ -142,27 +168,31 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
       statusCount[s] = (statusCount[s] || 0) + 1;
     });
 
-    const transfoInProgress = list
+    const transfoInProgress = listCurrentFY
       .filter(o => o.status === '04 - mission en cours')
       .reduce((sum, o) => sum + (o.amount_to_invoice || 0), 0);
-    const transfoCompleted = list
+
+    const countInProgress = list.filter(o => o.status === '04 - mission en cours').length;
+
+    const transfoCompleted = listCurrentFY
       .filter(o => {
         const transValue = (o.transfo_invoiced || '').trim().toLowerCase();
         return transValue.includes('03 - facturé') || transValue === '03 - facturé';
       })
       .reduce((sum, o) => {
-        const estRevenue = o.estimated_revenue || 0;
-        const ratio = parseRefacPercentageToRatio(o.refac_percentage);
-        return sum + Math.round(estRevenue * ratio);
+        const amount = o.amount_to_invoice !== null && o.amount_to_invoice !== undefined
+          ? o.amount_to_invoice
+          : Math.round((o.estimated_revenue || 0) * parseRefacPercentageToRatio(o.refac_percentage));
+        return sum + amount;
       }, 0);
 
-    const epsaRevenue = list
+    const epsaRevenue = listCurrentFY
       .filter(o => (o.beneficiary_entity || '').toLowerCase().includes('epsa'))
       .reduce((sum, o) => sum + (o.estimated_revenue || 0), 0);
 
     // Top Owner
     const ownerRevenue: Record<string, number> = {};
-    list.forEach(o => {
+    listCurrentFY.forEach(o => {
       const ow = o.account_owner || 'Non renseigné';
       ownerRevenue[ow] = (ownerRevenue[ow] || 0) + (o.estimated_revenue || 0);
     });
@@ -172,7 +202,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
 
     // Top Entity
     const entityRevenue: Record<string, number> = {};
-    list.forEach(o => {
+    listCurrentFY.forEach(o => {
       const ent = o.beneficiary_entity || 'Non renseigné';
       entityRevenue[ent] = (entityRevenue[ent] || 0) + (o.estimated_revenue || 0);
     });
@@ -188,13 +218,13 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
       statusCount,
       topOwners,
       topEntities,
-      countInProgress: statusCount['04 - mission en cours'] || 0,
+      countInProgress,
       countCompleted: statusCount['05 - mission terminée'] || 0,
       transfoInProgress,
       transfoCompleted,
       epsaRevenue
     };
-  }, [xsellOpportunities]);
+  }, [xsellOpportunities, globalFY]);
 
   // Centralized deduplication for all Dashboard calculations
   const timesheets = useMemo(() => {

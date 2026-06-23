@@ -305,7 +305,7 @@ const App: React.FC = () => {
         }
         return <BudgetTracking state={state} updateState={updateState} />;
       case 'xsell':
-        return <XsellOpportunities />;
+        return <XsellOpportunities globalFY={state.globalFY} />;
       default:
         return <Dashboard state={state} />;
     }
