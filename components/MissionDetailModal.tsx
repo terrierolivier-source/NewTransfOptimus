@@ -398,7 +398,7 @@ export const MissionDetailModal: React.FC<MissionDetailModalProps> = ({ mission,
                   <tbody>
                     {consultants.map((c, cIdx) => {
                       const isEven = cIdx % 2 === 0;
-                      const rowBg = isEven ? 'bg-white' : 'bg-slate-50/50';
+                      const rowBg = isEven ? 'bg-white' : 'bg-slate-50';
                       const rowTotals = consultantRowTotals[c.id] || { actualTotal: 0, plannedTotal: 0, mixedTotal: 0 };
 
                       return (
