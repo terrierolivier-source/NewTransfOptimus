@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { X, Check, CalendarDays, Users, Briefcase, TrendingUp, AlertCircle, FileSpreadsheet, Search } from 'lucide-react';
 import { Mission, AppState, TimesheetStatus } from '../types';
 import { 
@@ -24,6 +24,13 @@ interface MissionDetailModalProps {
 
 export const MissionDetailModal: React.FC<MissionDetailModalProps> = ({ mission, onClose, state }) => {
   const [collabSearch, setCollabSearch] = useState('');
+
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const currentWeekHeaderRef = useRef<HTMLTableHeaderCellElement>(null);
+
+  const currentWeekKey = useMemo(() => {
+    return format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd');
+  }, []);
 
   // 1. Get list of all weeks for this mission (Start -> End)
   const weeks = useMemo(() => {
@@ -144,6 +151,24 @@ export const MissionDetailModal: React.FC<MissionDetailModalProps> = ({ mission,
 
     return list;
   }, [mission, state.planning, state.timesheets, state.collaborators, collabSearch]);
+
+  useEffect(() => {
+    if (weeks.length > 0) {
+      const timer = setTimeout(() => {
+        if (scrollContainerRef.current && currentWeekHeaderRef.current) {
+          const container = scrollContainerRef.current;
+          const header = currentWeekHeaderRef.current;
+          // Calculate target scrollLeft to align with the sticky column (240px wide)
+          const targetScroll = Math.max(0, header.offsetLeft - 240);
+          container.scrollTo({
+            left: targetScroll,
+            behavior: 'smooth'
+          });
+        }
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [weeks]);
 
   // 3. Construct cell metrics map: key is `${consultantId}|${weekStartKey}`
   const gridData = useMemo(() => {
@@ -374,7 +399,7 @@ export const MissionDetailModal: React.FC<MissionDetailModalProps> = ({ mission,
           ) : (
             <div className="border border-slate-200 rounded-xl bg-white shadow-sm overflow-hidden flex flex-col min-w-full">
               {/* Table Wrapper with horizontal scrolling */}
-              <div className="overflow-x-auto min-w-full">
+              <div ref={scrollContainerRef} className="overflow-x-auto min-w-full">
                 <table className="border-collapse table-auto min-w-full text-left">
                   <thead>
                     <tr className="bg-slate-900 border-b border-slate-800 text-white">
@@ -383,12 +408,36 @@ export const MissionDetailModal: React.FC<MissionDetailModalProps> = ({ mission,
                         Collaborateur
                       </th>
                       {/* Dynamic Weeks Columns Header */}
-                      {weeks.map(w => (
-                        <th key={w.key} className="px-4 py-2.5 text-center text-xs font-black uppercase tracking-tight min-w-[110px] border-r border-slate-800">
-                          <div className="text-yellow-accent font-black">{w.label}</div>
-                          <div className="text-[9px] text-slate-300 font-mono mt-1 tracking-tight">{w.range}</div>
-                        </th>
-                      ))}
+                      {weeks.map(w => {
+                        const isCurrentWeek = w.key === currentWeekKey;
+                        return (
+                          <th 
+                            key={w.key} 
+                            ref={isCurrentWeek ? currentWeekHeaderRef : undefined}
+                            className={`px-4 py-2.5 text-center text-xs font-black uppercase tracking-tight min-w-[110px] border-r transition-colors ${
+                              isCurrentWeek 
+                                ? 'bg-red-950/90 border-r-red-800' 
+                                : 'bg-slate-900 border-r-slate-800'
+                            }`}
+                          >
+                            {isCurrentWeek && (
+                              <div className="mb-1">
+                                <span className="inline-block px-1.5 py-0.5 rounded text-[7px] font-black bg-red-650 bg-red-600 text-white uppercase tracking-widest leading-none">
+                                  En cours
+                                </span>
+                              </div>
+                            )}
+                            <div className={isCurrentWeek ? 'text-red-200 font-extrabold' : 'text-yellow-accent font-black'}>
+                              {w.label}
+                            </div>
+                            <div className={`text-[9px] font-mono mt-1 tracking-tight ${
+                              isCurrentWeek ? 'text-red-300' : 'text-slate-300'
+                            }`}>
+                              {w.range}
+                            </div>
+                          </th>
+                        );
+                      })}
                       {/* Row Total Headers (Mixed tracking is best) */}
                       <th className="px-5 py-3.5 text-center text-xs font-black uppercase tracking-wider min-w-[140px] bg-slate-900">
                         Total Général
@@ -424,9 +473,15 @@ export const MissionDetailModal: React.FC<MissionDetailModalProps> = ({ mission,
                           {weeks.map(w => {
                             const cellKey = `${c.id}|${w.key}`;
                             const cell = gridData[cellKey] || { actualDays: 0, plannedDays: 0, hasActual: false };
+                            const isCurrentWeek = w.key === currentWeekKey;
 
                             return (
-                              <td key={w.key} className="p-1.5 px-2.5 border-r border-slate-100 text-center">
+                              <td 
+                                key={w.key} 
+                                className={`p-1.5 px-2.5 border-r border-slate-100 text-center transition-colors ${
+                                  isCurrentWeek ? 'bg-red-50/40' : ''
+                                }`}
+                              >
                                 {cell.hasActual ? (
                                   // Validated days logged (Emerald style)
                                   <div 
@@ -450,7 +505,7 @@ export const MissionDetailModal: React.FC<MissionDetailModalProps> = ({ mission,
                                   </div>
                                 ) : (
                                   // Empty cell
-                                  <span className="text-slate-350 font-mono text-xs font-semibold">-</span>
+                                  <span className={`font-mono text-xs font-semibold ${isCurrentWeek ? 'text-red-400/85' : 'text-slate-350'}`}>-</span>
                                 )}
                               </td>
                             );
@@ -473,8 +528,14 @@ export const MissionDetailModal: React.FC<MissionDetailModalProps> = ({ mission,
                       </td>
                       {weeks.map(w => {
                         const colTotal = weekColumnTotals[w.key] || { actualTotal: 0, plannedTotal: 0, mixedTotal: 0 };
+                        const isCurrentWeek = w.key === currentWeekKey;
                         return (
-                          <td key={w.key} className="px-4 py-3 text-center border-r border-slate-200">
+                          <td 
+                            key={w.key} 
+                            className={`px-4 py-3 text-center border-r border-slate-200 transition-colors ${
+                              isCurrentWeek ? 'bg-red-50/50' : ''
+                            }`}
+                          >
                             {colTotal.mixedTotal > 0 ? (
                               <div className="flex flex-col items-center justify-center gap-1">
                                 <span className="text-xs lg:text-[13px] font-black text-navy leading-none">
