@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../services/supabase';
+import { MultiSelect } from '../components/MultiSelect';
 
 // Strict Type Definition requested by the user
 export interface XsellOpportunity {
@@ -167,13 +168,13 @@ const XsellOpportunities: React.FC<XsellOpportunitiesProps> = ({ globalFY = 'FY2
 
   // Search & Filters
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('All');
-  const [yearFilter, setYearFilter] = useState('All');
-  const [ownerFilter, setOwnerFilter] = useState('All');
-  const [accountFilter, setAccountFilter] = useState('All');
-  const [entityFilter, setEntityFilter] = useState('All');
-  const [billingModelFilter, setBillingModelFilter] = useState('All');
-  const [invoicedFilter, setInvoicedFilter] = useState('All');
+  const [statusFilter, setStatusFilter] = useState<string[]>(['Except KO']);
+  const [yearFilter, setYearFilter] = useState<string[]>(['All']);
+  const [ownerFilter, setOwnerFilter] = useState<string[]>(['All']);
+  const [accountFilter, setAccountFilter] = useState<string[]>(['All']);
+  const [entityFilter, setEntityFilter] = useState<string[]>(['All']);
+  const [billingModelFilter, setBillingModelFilter] = useState<string[]>(['All']);
+  const [invoicedFilter, setInvoicedFilter] = useState<string[]>(['All']);
 
   // Sorting
   const [sortConfig, setSortConfig] = useState<{ key: keyof XsellOpportunity | ''; direction: 'asc' | 'desc' }>({
@@ -865,16 +866,38 @@ const XsellOpportunities: React.FC<XsellOpportunitiesProps> = ({ globalFY = 'FY2
     }
 
     // Quick filters
-    if (statusFilter !== 'All') result = result.filter(opp => opp.status === statusFilter);
-    if (yearFilter !== 'All') result = result.filter(opp => {
-      const refYear = getOpportunityRefYear(opp);
-      return refYear !== null && String(refYear) === yearFilter;
-    });
-    if (ownerFilter !== 'All') result = result.filter(opp => opp.account_owner === ownerFilter);
-    if (accountFilter !== 'All') result = result.filter(opp => opp.account_name === accountFilter);
-    if (entityFilter !== 'All') result = result.filter(opp => opp.beneficiary_entity === entityFilter);
-    if (billingModelFilter !== 'All') result = result.filter(opp => opp.billing_model === billingModelFilter);
-    if (invoicedFilter !== 'All') result = result.filter(opp => opp.transfo_invoiced === invoicedFilter);
+    if (statusFilter.includes('Except KO')) {
+      result = result.filter(opp => (opp.status || '').trim().toUpperCase() !== 'KO');
+    } else if (statusFilter.length > 0 && !statusFilter.includes('All')) {
+      result = result.filter(opp => statusFilter.includes(opp.status || ''));
+    }
+    
+    if (yearFilter.length > 0 && !yearFilter.includes('All')) {
+      result = result.filter(opp => {
+        const refYear = getOpportunityRefYear(opp);
+        return refYear !== null && yearFilter.includes(String(refYear));
+      });
+    }
+
+    if (ownerFilter.length > 0 && !ownerFilter.includes('All')) {
+      result = result.filter(opp => ownerFilter.includes(opp.account_owner || ''));
+    }
+
+    if (accountFilter.length > 0 && !accountFilter.includes('All')) {
+      result = result.filter(opp => accountFilter.includes(opp.account_name || ''));
+    }
+
+    if (entityFilter.length > 0 && !entityFilter.includes('All')) {
+      result = result.filter(opp => entityFilter.includes(opp.beneficiary_entity || ''));
+    }
+
+    if (billingModelFilter.length > 0 && !billingModelFilter.includes('All')) {
+      result = result.filter(opp => billingModelFilter.includes(opp.billing_model || ''));
+    }
+
+    if (invoicedFilter.length > 0 && !invoicedFilter.includes('All')) {
+      result = result.filter(opp => invoicedFilter.includes(opp.transfo_invoiced || ''));
+    }
 
     // Sorting
     if (sortConfig.key !== '') {
@@ -910,24 +933,24 @@ const XsellOpportunities: React.FC<XsellOpportunitiesProps> = ({ globalFY = 'FY2
 
   const clearAllFilters = () => {
     setSearchQuery('');
-    setStatusFilter('All');
-    setYearFilter('All');
-    setOwnerFilter('All');
-    setAccountFilter('All');
-    setEntityFilter('All');
-    setBillingModelFilter('All');
-    setInvoicedFilter('All');
+    setStatusFilter(['Except KO']);
+    setYearFilter(['All']);
+    setOwnerFilter(['All']);
+    setAccountFilter(['All']);
+    setEntityFilter(['All']);
+    setBillingModelFilter(['All']);
+    setInvoicedFilter(['All']);
   };
 
   const isAnyFilterActive = useMemo(() => {
     return searchQuery !== '' ||
-      statusFilter !== 'All' ||
-      yearFilter !== 'All' ||
-      ownerFilter !== 'All' ||
-      accountFilter !== 'All' ||
-      entityFilter !== 'All' ||
-      billingModelFilter !== 'All' ||
-      invoicedFilter !== 'All';
+      !(statusFilter.length === 1 && statusFilter.includes('Except KO')) ||
+      !(yearFilter.length === 1 && yearFilter.includes('All')) ||
+      !(ownerFilter.length === 1 && ownerFilter.includes('All')) ||
+      !(accountFilter.length === 1 && accountFilter.includes('All')) ||
+      !(entityFilter.length === 1 && entityFilter.includes('All')) ||
+      !(billingModelFilter.length === 1 && billingModelFilter.includes('All')) ||
+      !(invoicedFilter.length === 1 && invoicedFilter.includes('All'));
   }, [searchQuery, statusFilter, yearFilter, ownerFilter, accountFilter, entityFilter, billingModelFilter, invoicedFilter]);
 
   // Bento-Dashboard Analytics
@@ -944,12 +967,26 @@ const XsellOpportunities: React.FC<XsellOpportunitiesProps> = ({ globalFY = 'FY2
         (opp.comments || '').toLowerCase().includes(q)
       );
     }
-    if (statusFilter !== 'All') listIgnoreYear = listIgnoreYear.filter(opp => opp.status === statusFilter);
-    if (ownerFilter !== 'All') listIgnoreYear = listIgnoreYear.filter(opp => opp.account_owner === ownerFilter);
-    if (accountFilter !== 'All') listIgnoreYear = listIgnoreYear.filter(opp => opp.account_name === accountFilter);
-    if (entityFilter !== 'All') listIgnoreYear = listIgnoreYear.filter(opp => opp.beneficiary_entity === entityFilter);
-    if (billingModelFilter !== 'All') listIgnoreYear = listIgnoreYear.filter(opp => opp.billing_model === billingModelFilter);
-    if (invoicedFilter !== 'All') listIgnoreYear = listIgnoreYear.filter(opp => opp.transfo_invoiced === invoicedFilter);
+    if (statusFilter.includes('Except KO')) {
+      listIgnoreYear = listIgnoreYear.filter(opp => (opp.status || '').trim().toUpperCase() !== 'KO');
+    } else if (statusFilter.length > 0 && !statusFilter.includes('All')) {
+      listIgnoreYear = listIgnoreYear.filter(opp => statusFilter.includes(opp.status || ''));
+    }
+    if (ownerFilter.length > 0 && !ownerFilter.includes('All')) {
+      listIgnoreYear = listIgnoreYear.filter(opp => ownerFilter.includes(opp.account_owner || ''));
+    }
+    if (accountFilter.length > 0 && !accountFilter.includes('All')) {
+      listIgnoreYear = listIgnoreYear.filter(opp => accountFilter.includes(opp.account_name || ''));
+    }
+    if (entityFilter.length > 0 && !entityFilter.includes('All')) {
+      listIgnoreYear = listIgnoreYear.filter(opp => entityFilter.includes(opp.beneficiary_entity || ''));
+    }
+    if (billingModelFilter.length > 0 && !billingModelFilter.includes('All')) {
+      listIgnoreYear = listIgnoreYear.filter(opp => billingModelFilter.includes(opp.billing_model || ''));
+    }
+    if (invoicedFilter.length > 0 && !invoicedFilter.includes('All')) {
+      listIgnoreYear = listIgnoreYear.filter(opp => invoicedFilter.includes(opp.transfo_invoiced || ''));
+    }
 
     // Filtered by globalFY for the CA indicators
     const currentFYYear = parseInt(globalFY.replace('FY', ''), 10);
@@ -1342,95 +1379,75 @@ const XsellOpportunities: React.FC<XsellOpportunitiesProps> = ({ globalFY = 'FY2
         {/* Quick Filter Selection Dropdowns */}
         <div className="grid grid-cols-2 md:grid-cols-7 gap-2">
           {/* Year select */}
-          <div className="space-y-1">
-            <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest block">Année</label>
-            <select
-              className="w-full border rounded-lg px-2 py-1 text-[10px] font-bold text-navy bg-white outline-none focus:ring-1 focus:ring-navy/20 cursor-pointer"
-              value={yearFilter}
-              onChange={e => setYearFilter(e.target.value)}
-            >
-              <option value="All">Toutes</option>
-              {filterOptions.years.map(y => <option key={y} value={y}>{y}</option>)}
-            </select>
-          </div>
+          <MultiSelect
+            label="Année"
+            options={filterOptions.years}
+            selectedValues={yearFilter}
+            onChange={setYearFilter}
+            placeholder="Toutes"
+            presetAllLabel="Toutes"
+          />
 
           {/* Owner select */}
-          <div className="space-y-1">
-            <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest block font-sans">Responsable Lead</label>
-            <select
-              className="w-full border rounded-lg px-2 py-1 text-[10px] font-bold text-navy bg-white outline-none focus:ring-1 focus:ring-navy/20 cursor-pointer"
-              value={ownerFilter}
-              onChange={e => setOwnerFilter(e.target.value)}
-            >
-              <option value="All">Tous</option>
-              {filterOptions.owners.map(o => <option key={o} value={o}>{o}</option>)}
-            </select>
-          </div>
+          <MultiSelect
+            label="Responsable Lead"
+            options={filterOptions.owners}
+            selectedValues={ownerFilter}
+            onChange={setOwnerFilter}
+            placeholder="Tous"
+            presetAllLabel="Tous"
+          />
 
           {/* Account select */}
-          <div className="space-y-1">
-            <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest block font-sans">Compte Client</label>
-            <select
-              className="w-full border rounded-lg px-2 py-1 text-[10px] font-bold text-navy bg-white outline-none focus:ring-1 focus:ring-navy/20 cursor-pointer"
-              value={accountFilter}
-              onChange={e => setAccountFilter(e.target.value)}
-            >
-              <option value="All">Tous</option>
-              {filterOptions.accounts.map(o => <option key={o} value={o}>{o}</option>)}
-            </select>
-          </div>
+          <MultiSelect
+            label="Compte Client"
+            options={filterOptions.accounts}
+            selectedValues={accountFilter}
+            onChange={setAccountFilter}
+            placeholder="Tous"
+            presetAllLabel="Tous"
+          />
 
           {/* Entity select */}
-          <div className="space-y-1">
-            <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest block font-sans">Entité Bénéf.</label>
-            <select
-              className="w-full border rounded-lg px-2 py-1 text-[10px] font-bold text-navy bg-white outline-none focus:ring-1 focus:ring-navy/20 cursor-pointer"
-              value={entityFilter}
-              onChange={e => setEntityFilter(e.target.value)}
-            >
-              <option value="All">Toutes</option>
-              {filterOptions.entities.map(e => <option key={e} value={e}>{e}</option>)}
-            </select>
-          </div>
+          <MultiSelect
+            label="Entité Bénéf."
+            options={filterOptions.entities}
+            selectedValues={entityFilter}
+            onChange={setEntityFilter}
+            placeholder="Toutes"
+            presetAllLabel="Toutes"
+          />
 
           {/* Status select */}
-          <div className="space-y-1">
-            <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest block font-sans">Statut Mission</label>
-            <select
-              className="w-full border rounded-lg px-2 py-1 text-[10px] font-bold text-navy bg-white outline-none focus:ring-1 focus:ring-navy/20 cursor-pointer"
-              value={statusFilter}
-              onChange={e => setStatusFilter(e.target.value)}
-            >
-              <option value="All">Tous</option>
-              {filterOptions.statuses.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </div>
+          <MultiSelect
+            label="Statut Mission"
+            options={filterOptions.statuses}
+            selectedValues={statusFilter}
+            onChange={setStatusFilter}
+            placeholder="Tous sauf KO"
+            presetAllLabel="Tous"
+            presetExceptKo={true}
+          />
 
           {/* Billing select */}
-          <div className="space-y-1">
-            <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest block font-sans">Type Refac.</label>
-            <select
-              className="w-full border rounded-lg px-2 py-1 text-[10px] font-bold text-navy bg-white outline-none focus:ring-1 focus:ring-navy/20 cursor-pointer"
-              value={billingModelFilter}
-              onChange={e => setBillingModelFilter(e.target.value)}
-            >
-              <option value="All">Tous</option>
-              {filterOptions.billingModels.map(b => <option key={b} value={b}>{b}</option>)}
-            </select>
-          </div>
+          <MultiSelect
+            label="Type Refac."
+            options={filterOptions.billingModels}
+            selectedValues={billingModelFilter}
+            onChange={setBillingModelFilter}
+            placeholder="Tous"
+            presetAllLabel="Tous"
+          />
 
           {/* Invoiced select */}
-          <div className="space-y-1">
-            <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest block font-sans">Facturé Transfo</label>
-            <select
-              className="w-full border rounded-lg px-2 py-1 text-[10px] font-bold text-navy bg-white outline-none focus:ring-1 focus:ring-navy/20 cursor-pointer"
-              value={invoicedFilter}
-              onChange={e => setInvoicedFilter(e.target.value)}
-            >
-              <option value="All">Tous</option>
-              {filterOptions.invoicedCodes.map(i => <option key={i} value={i}>{i}</option>)}
-            </select>
-          </div>
+          <MultiSelect
+            label="Facturé Transfo"
+            options={filterOptions.invoicedCodes}
+            selectedValues={invoicedFilter}
+            onChange={setInvoicedFilter}
+            placeholder="Tous"
+            presetAllLabel="Tous"
+          />
         </div>
       </div>
 
