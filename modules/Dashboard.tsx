@@ -19,7 +19,7 @@ import {
 import { getBusinessDays, getMonday, getFiscalYear, calculateSmoothedMissionRevenue, calculateTotalMissionRevenue, isWorkingDay, getDedupedTimesheets } from '../utils';
 import { parseISO, format, isAfter, startOfToday, subWeeks, endOfWeek, eachDayOfInterval, isBefore, startOfDay, endOfDay, startOfWeek, endOfMonth, addDays, eachWeekOfInterval, isValid, max, min, differenceInDays, startOfMonth, isSameDay } from 'date-fns';
 import { supabase } from '../services/supabase';
-import { XsellOpportunity } from './XsellOpportunities';
+import { XsellOpportunity, getOpportunityRefFY, getOpportunityRefYear, parseRefacPercentageToRatio } from './XsellOpportunities';
 
 interface DashboardProps {
   state: AppState;
@@ -125,29 +125,13 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
   const xsellMetrics = useMemo(() => {
     const list = xsellOpportunities;
 
-    const extractYearFromInvoiceDateLocal = (dateStr: string | null | undefined): number | null => {
-      if (!dateStr) return null;
-      const s = String(dateStr).trim();
-      const mYmd = s.match(/^(\d{4})[-/]/);
-      if (mYmd) return parseInt(mYmd[1], 10);
-      const mDmy = s.match(/[-/](\d{4})$/);
-      if (mDmy) return parseInt(mDmy[1], 10);
-      const mAny = s.match(/\b(20\d{2})\b/);
-      if (mAny) return parseInt(mAny[1], 10);
-      return null;
-    };
-
-    const getOpportunityRefYearLocal = (o: typeof xsellOpportunities[number]): number | null => {
-      const invoiceYear = extractYearFromInvoiceDateLocal(o.transfo_invoice_date);
-      if (invoiceYear !== null) return invoiceYear;
-      return o.year;
-    };
-
-    // Filter by globalFY for the CA indicators
-    const currentFYYear = parseInt(globalFY.replace('FY', ''), 10);
+    // Filter by globalFY for the CA indicators (strictly using the unified Fiscal Year rule: 01/02 to 31/01)
+    const normalizedGlobalFY = (globalFY || 'FY26').toUpperCase();
+    const currentFYYear = parseInt(normalizedGlobalFY.replace('FY', ''), 10);
     const listCurrentFY = list.filter(o => {
-      const refYear = getOpportunityRefYearLocal(o);
-      return refYear !== null && refYear === currentFYYear;
+      const oppFY = getOpportunityRefFY(o);
+      const refYear = getOpportunityRefYear(o);
+      return oppFY === normalizedGlobalFY || (refYear !== null && (refYear === currentFYYear || refYear === (2000 + currentFYYear)));
     });
 
     const totalEstRevenue = listCurrentFY.reduce((sum, o) => sum + (o.estimated_revenue || 0), 0);

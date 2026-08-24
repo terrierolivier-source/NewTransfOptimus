@@ -82,13 +82,21 @@ const Timesheets: React.FC<TimesheetsProps> = ({
   }, [state.globalFY]);
 
   const selectableUsers = useMemo(() => {
-    return state.collaborators.map(c => ({
-      id: c.id,
-      name: `${c.firstName} ${c.lastName}`,
-      role: c.grade,
-      country: c.country,
-      isExternal: c.collaboratorType !== 'internal'
-    })).sort((a, b) => a.name.localeCompare(b.name));
+    return state.collaborators
+      .filter(c => {
+        if (c.active === false || (c as any).active === 'false') return false;
+        if ((c as any).isActive === false || (c as any).isActive === 'false') return false;
+        if ((c as any).status === 'inactif' || (c as any).status === 'inactive') return false;
+        return true;
+      })
+      .map(c => ({
+        id: c.id,
+        name: `${c.firstName} ${c.lastName}`,
+        role: c.grade,
+        country: c.country,
+        isExternal: c.collaboratorType !== 'internal'
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
   }, [state.collaborators]);
 
   const [activeMenuDay, setActiveMenuDay] = useState<{ weekKey: string, dayIdx: number } | null>(null);
@@ -120,7 +128,21 @@ const Timesheets: React.FC<TimesheetsProps> = ({
     addWeeks(anchorWeek, 1)
   ], [anchorWeek]);
 
-  const selectedUser = useMemo(() => selectableUsers.find(u => u.id === selectedUserId), [selectableUsers, selectedUserId]);
+  const selectedUser = useMemo(() => {
+    const fromSelectable = selectableUsers.find(u => u.id === selectedUserId);
+    if (fromSelectable) return fromSelectable;
+    const fromAll = state.collaborators.find(c => c.id === selectedUserId);
+    if (fromAll) {
+      return {
+        id: fromAll.id,
+        name: `${fromAll.firstName} ${fromAll.lastName}`,
+        role: fromAll.grade,
+        country: fromAll.country,
+        isExternal: fromAll.collaboratorType !== 'internal'
+      };
+    }
+    return undefined;
+  }, [selectableUsers, selectedUserId, state.collaborators]);
   
   // Custom memo to compute timesheet entry conflicts on the selected range live
   const leaveConflicts = useMemo(() => {

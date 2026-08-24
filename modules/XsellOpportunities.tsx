@@ -56,25 +56,78 @@ export interface XsellOpportunity {
   updated_at?: string;
 }
 
-const extractYearFromInvoiceDate = (dateStr: string | null | undefined): number | null => {
+// Fiscal Year parsing helper for Xsell Opportunity
+// Fiscal Year rule: 01/02/YEAR -> 31/01/(YEAR + 1) is FY(YEAR)
+// Example: 15/01/2027 is in FY26 (01/02/2026 to 31/01/2027)
+export const getFiscalYearFromDate = (dateStr: string | null | undefined): string | null => {
   if (!dateStr) return null;
   const s = String(dateStr).trim();
-  const mYmd = s.match(/^(\d{4})[-/]/);
-  if (mYmd) return parseInt(mYmd[1], 10);
-  const mDmy = s.match(/[-/](\d{4})$/);
-  if (mDmy) return parseInt(mDmy[1], 10);
-  const mAny = s.match(/\b(20\d{2})\b/);
-  if (mAny) return parseInt(mAny[1], 10);
-  return null;
+  if (!s) return null;
+
+  let year: number | null = null;
+  let month: number | null = null; // 1-12
+
+  // Format YYYY-MM-DD or YYYY/MM/DD
+  const mYmd = s.match(/^(\d{4})[-/](\d{1,2})/);
+  if (mYmd) {
+    year = parseInt(mYmd[1], 10);
+    month = parseInt(mYmd[2], 10);
+  } else {
+    // Format DD-MM-YYYY or DD/MM/YYYY
+    const mDmy = s.match(/(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+    if (mDmy) {
+      month = parseInt(mDmy[2], 10);
+      year = parseInt(mDmy[3], 10);
+    } else {
+      // Fallback: only 4-digit year detected
+      const mAny = s.match(/\b(20\d{2})\b/);
+      if (mAny) {
+        year = parseInt(mAny[1], 10);
+        // default to middle of year if month is unknown
+        month = 6;
+      }
+    }
+  }
+
+  if (!year) return null;
+
+  // If month is January (1), it belongs to previous Fiscal Year (year - 1)
+  // E.g., 15/01/2027 -> month = 1, year = 2027 => FY26
+  // E.g., 01/02/2026 -> month = 2, year = 2026 => FY26
+  const fyYear = month !== null && month === 1 ? year - 1 : year;
+  const shortYear = fyYear % 100;
+  return `FY${shortYear < 10 ? '0' + shortYear : shortYear}`;
 };
 
-const getOpportunityRefYear = (o: XsellOpportunity): number | null => {
-  const invoiceYear = extractYearFromInvoiceDate(o.transfo_invoice_date);
-  if (invoiceYear !== null) return invoiceYear;
+export const getOpportunityRefFY = (o: XsellOpportunity): string => {
+  // 1. Look in transfo_invoice_date (Date de facturation)
+  const dateFY = getFiscalYearFromDate(o.transfo_invoice_date);
+  if (dateFY) return dateFY;
+
+  // 2. Fallback to opportunity year (Année du lead)
+  if (o.year) {
+    const y = typeof o.year === 'number' ? o.year : parseInt(String(o.year), 10);
+    if (!isNaN(y)) {
+      const shortYear = y % 100;
+      return `FY${shortYear < 10 ? '0' + shortYear : shortYear}`;
+    }
+  }
+
+  return 'FY26';
+};
+
+// Numeric year helper (for backward compatibility if needed, returns 2026 for FY26)
+export const getOpportunityRefYear = (o: XsellOpportunity): number | null => {
+  const fy = getOpportunityRefFY(o);
+  const m = fy.match(/FY(\d+)/);
+  if (m) {
+    const yr = parseInt(m[1], 10);
+    return yr < 100 ? 2000 + yr : yr;
+  }
   return o.year;
 };
 
-const parseRefacPercentageToRatio = (val: string | null | undefined): number => {
+export const parseRefacPercentageToRatio = (val: string | null | undefined): number => {
   if (!val) return 0;
   const clean = String(val).trim().replace(',', '.');
   if (!clean || clean.toLowerCase() === 'na') return 0;
@@ -829,8 +882,8 @@ const XsellOpportunities: React.FC<XsellOpportunitiesProps> = ({ globalFY = 'FY2
   const filterOptions = useMemo(() => {
     const statuses = Array.from(new Set(opportunities.map(o => o.status).filter(Boolean))) as string[];
     const years = Array.from(new Set(opportunities.map(o => {
-      const yr = getOpportunityRefYear(o);
-      return yr ? String(yr) : null;
+      const fy = getOpportunityRefFY(o);
+      return fy || null;
     }).filter(Boolean))) as string[];
     const owners = Array.from(new Set(opportunities.map(o => o.account_owner).filter(Boolean))) as string[];
     const accounts = Array.from(new Set(opportunities.map(o => o.account_name).filter(Boolean))) as string[];
@@ -874,8 +927,9 @@ const XsellOpportunities: React.FC<XsellOpportunitiesProps> = ({ globalFY = 'FY2
     
     if (yearFilter.length > 0 && !yearFilter.includes('All')) {
       result = result.filter(opp => {
+        const refFY = getOpportunityRefFY(opp);
         const refYear = getOpportunityRefYear(opp);
-        return refYear !== null && yearFilter.includes(String(refYear));
+        return yearFilter.includes(refFY) || (refYear !== null && yearFilter.includes(String(refYear)));
       });
     }
 
@@ -989,10 +1043,12 @@ const XsellOpportunities: React.FC<XsellOpportunitiesProps> = ({ globalFY = 'FY2
     }
 
     // Filtered by globalFY for the CA indicators
-    const currentFYYear = parseInt(globalFY.replace('FY', ''), 10);
+    const normalizedGlobalFY = (globalFY || 'FY26').toUpperCase();
+    const currentFYYear = parseInt(normalizedGlobalFY.replace('FY', ''), 10);
     const listCurrentFY = listIgnoreYear.filter(o => {
+      const oppFY = getOpportunityRefFY(o);
       const refYear = getOpportunityRefYear(o);
-      return refYear !== null && refYear === currentFYYear;
+      return oppFY === normalizedGlobalFY || (refYear !== null && (refYear === currentFYYear || refYear === (2000 + currentFYYear)));
     });
 
     const totalEstRevenue = listCurrentFY.reduce((sum, o) => sum + (o.estimated_revenue || 0), 0);
@@ -1493,7 +1549,11 @@ const XsellOpportunities: React.FC<XsellOpportunitiesProps> = ({ globalFY = 'FY2
                       setIsEditing(false);
                     }}
                   >
-                    <td className="p-3 whitespace-nowrap text-gray-500 font-mono text-[10px]">{getOpportunityRefYear(opp) || '-'}</td>
+                    <td className="p-3 whitespace-nowrap text-gray-500 font-mono text-[10px]">
+                      <span className="bg-gray-100 text-navy font-bold px-1.5 py-0.5 rounded text-[10px]">
+                        {getOpportunityRefFY(opp)}
+                      </span>
+                    </td>
                     <td className="p-3 truncate max-w-[120px]">{opp.account_owner}</td>
                     <td className="p-3 truncate max-w-[130px] font-black text-navy">{opp.account_name}</td>
                     <td className="p-3 truncate max-w-[120px]">{opp.beneficiary_entity}</td>
@@ -1765,7 +1825,9 @@ const XsellOpportunities: React.FC<XsellOpportunitiesProps> = ({ globalFY = 'FY2
             {/* Drawer Header */}
             <div className="px-6 py-4 border-b flex justify-between items-center bg-gray-50 shrink-0">
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-black bg-navy text-white px-2 py-0.5 rounded font-mono">{selectedOpp.year || '-'}</span>
+                <span className="text-[10px] font-black bg-navy text-white px-2 py-0.5 rounded font-mono">
+                  {getOpportunityRefFY(selectedOpp)}
+                </span>
                 <h4 className="font-sans font-black text-xs text-navy uppercase tracking-widest">Détails de l'opportunité</h4>
               </div>
               <div className="flex items-center gap-1.5">
