@@ -929,7 +929,6 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
                                 {!isGlobalView && (
                                   <div className="flex items-center gap-2">
                                     <button type="button" onClick={() => handleAddExpenseRow(cat.id, fam.id)} className="p-1 hover:bg-navy hover:text-white rounded-md transition-all flex items-center gap-1.5 px-3 bg-white shadow-sm border border-navy/10"><Plus size={10} /> <span className="text-[8px] font-black uppercase">Ligne</span></button>
-                                    <button type="button" onClick={() => handleDeleteFamily(fam.id)} className="p-1 hover:bg-red-500 hover:text-white rounded-md transition-all px-2 text-red-500" title="Supprimer la famille"><Trash2 size={12} /></button>
                                   </div>
                                 )}
                               </td>
