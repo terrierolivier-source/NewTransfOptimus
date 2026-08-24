@@ -1064,9 +1064,14 @@ const XsellOpportunities: React.FC<XsellOpportunitiesProps> = ({ globalFY = 'FY2
       '05 - mission terminée': 0,
       'KO': 0
     };
+    const statusOpportunities: Record<string, XsellOpportunity[]> = {};
     listIgnoreYear.forEach(o => {
       const s = o.status || 'Non renseigné';
       statusCount[s] = (statusCount[s] || 0) + 1;
+      if (!statusOpportunities[s]) {
+        statusOpportunities[s] = [];
+      }
+      statusOpportunities[s].push(o);
     });
 
     const transfoInProgress = listCurrentFY
@@ -1117,6 +1122,7 @@ const XsellOpportunities: React.FC<XsellOpportunitiesProps> = ({ globalFY = 'FY2
       totalInvoiceTransfo,
       totalSavings,
       statusCount,
+      statusOpportunities,
       topOwners,
       topEntities,
       countInProgress,
@@ -1296,7 +1302,7 @@ const XsellOpportunities: React.FC<XsellOpportunitiesProps> = ({ globalFY = 'FY2
                   
                   const maxDisplayCount = Math.max(...statusesToDisplay.map(([_, count]) => count as number), 1);
 
-                  return statusesToDisplay.map(([status, count]) => {
+                  return statusesToDisplay.map(([status, count], barIndex) => {
                     const pct = Math.round(((count as number) / (metrics.totalCount || 1)) * 100) || 0;
                     const heightPct = ((count as number) / maxDisplayCount) * 100;
                     const barColorClass = getStatusProgressBarColor(status);
@@ -1311,14 +1317,78 @@ const XsellOpportunities: React.FC<XsellOpportunitiesProps> = ({ globalFY = 'FY2
                     if (name.toLowerCase().includes('cours')) shortName = 'En cours';
                     if (name.toLowerCase().includes('terminée')) shortName = 'Terminée';
 
+                    const oppsForStatus = metrics.statusOpportunities?.[status] || [];
+
+                    // Position popup correctly so it is never cut off by the left navigation menu
+                    const isLeftBar = barIndex <= 1;
+                    const isRightBar = barIndex >= statusesToDisplay.length - 2;
+                    const popupAlignment = isLeftBar 
+                      ? 'left-0 items-start' 
+                      : isRightBar 
+                        ? 'right-0 items-end' 
+                        : 'left-1/2 -translate-x-1/2 items-center';
+                    const arrowAlignment = isLeftBar ? 'left-6' : isRightBar ? 'right-6' : 'left-1/2 -translate-x-1/2';
+
                     return (
                       <div key={status} className="flex flex-col items-center flex-1 group relative">
-                        {/* Tooltip on hover */}
-                        <div className="absolute bottom-full mb-2 hidden group-hover:flex flex-col items-center z-30 pointer-events-none">
-                          <div className="bg-navy text-white text-[9px] font-bold py-1 px-2 rounded shadow-lg whitespace-nowrap">
-                            {status}: <span className="font-extrabold text-amber-300">{count}</span> ({pct}%)
+                        {/* Pop-up détaillé optimisé au survol (sans ascenseur, lecture immédiate et décalage anti-coupure) */}
+                        <div className={`absolute bottom-full mb-3 hidden group-hover:flex flex-col ${popupAlignment} z-50 pointer-events-none transition-all animate-in fade-in zoom-in-95 duration-150`}>
+                          <div className="bg-slate-900/95 backdrop-blur-md text-white rounded-xl shadow-2xl border border-white/20 p-3 w-84 max-w-sm text-left ring-1 ring-black/20">
+                            {/* Header du Pop-up */}
+                            <div className="flex items-center justify-between border-b border-white/15 pb-2 mb-2 gap-2">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <div className={`w-2 h-2 rounded-full shrink-0 ${barColorClass.split(' ')[0]}`}></div>
+                                <span className="text-[11px] font-black text-amber-300 uppercase tracking-wider truncate">
+                                  {status}
+                                </span>
+                              </div>
+                              <span className="bg-white/15 text-white font-mono text-[10px] px-2 py-0.5 rounded-md font-extrabold shrink-0 border border-white/15">
+                                {count as number} {(count as number) > 1 ? 'opportunités' : 'opportunité'} <span className="text-white/70 font-normal">({pct}%)</span>
+                              </span>
+                            </div>
+
+                            {/* Liste détaillée des opportunités : Responsable - Compte Client - Entité Bénéficiaire */}
+                            <div className="space-y-1.5">
+                              {oppsForStatus.length === 0 ? (
+                                <p className="text-[10px] text-white/50 italic py-1">Aucune opportunité</p>
+                              ) : (
+                                <>
+                                  {oppsForStatus.slice(0, 10).map((opp, oIdx) => {
+                                    const owner = opp.account_owner || '-';
+                                    const account = opp.account_name || 'Client non précisé';
+                                    const entity = opp.beneficiary_entity || '-';
+
+                                    return (
+                                      <div
+                                        key={opp.id || `opp-${oIdx}`}
+                                        className="text-[10px] bg-white/10 rounded-lg px-2.5 py-1.5 border border-white/10 flex items-center justify-between gap-2"
+                                      >
+                                        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                                          <span className="font-bold text-amber-300 text-[10px] truncate shrink-0 max-w-[90px]" title={owner}>
+                                            {owner}
+                                          </span>
+                                          <span className="text-white/40 text-[9px] font-bold">•</span>
+                                          <span className="font-semibold text-white text-[10px] truncate" title={account}>
+                                            {account}
+                                          </span>
+                                        </div>
+                                        <span className="text-[9px] text-sky-200 bg-sky-950/60 border border-sky-400/20 px-1.5 py-0.5 rounded font-medium truncate shrink-0 max-w-[85px]" title={entity}>
+                                          {entity.length > 12 ? entity.substring(0, 10) + '..' : entity}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
+                                  {oppsForStatus.length > 10 && (
+                                    <div className="pt-0.5 text-center text-[9px] text-amber-300 font-semibold">
+                                      + {oppsForStatus.length - 10} autre{oppsForStatus.length - 10 > 1 ? 's' : ''} opportunité{oppsForStatus.length - 10 > 1 ? 's' : ''}
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                            </div>
                           </div>
-                          <div className="w-1.5 h-1.5 bg-navy rotate-45 -mt-0.5"></div>
+                          {/* Flèche pointeur avec positionnement adaptatif */}
+                          <div className={`w-2.5 h-2.5 bg-slate-900 rotate-45 -mt-1 shadow-sm border-r border-b border-white/20 relative ${arrowAlignment}`}></div>
                         </div>
 
                         {/* Direct count label on top of the bar */}
@@ -1327,7 +1397,7 @@ const XsellOpportunities: React.FC<XsellOpportunitiesProps> = ({ globalFY = 'FY2
                         </span>
 
                         {/* Bar body */}
-                        <div className="w-7 sm:w-9 bg-gray-50/50 rounded-t-md relative overflow-hidden flex items-end h-[105px] border border-gray-100/50 hover:border-gray-200 hover:shadow-xs transition-all duration-200">
+                        <div className="w-7 sm:w-9 bg-gray-50/50 rounded-t-md relative overflow-hidden flex items-end h-[105px] border border-gray-100/50 hover:border-gray-300 hover:shadow-sm transition-all duration-200 cursor-pointer">
                           <div 
                             className={`w-full rounded-t-sm transition-all duration-700 ease-out origin-bottom ${barColorClass}`}
                             style={{ height: `${heightPct}%` }}
