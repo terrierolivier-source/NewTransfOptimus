@@ -216,7 +216,7 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
     missions.forEach(mission => {
       if (globalCountry !== 'Global' && mission.country !== globalCountry) return;
 
-      const processResource = (resId: string, label: string, resType: 'f' | 's') => {
+      const processResource = (resId: string, resourceDescriptor: string, resType: 'f' | 's') => {
         const autoId = `auto-${resType}-${resId}-${mission.id}`;
         const stored = storedExpenses.find(e => e.id === autoId);
         
@@ -226,7 +226,7 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
 
         const expense: ManualExpense = {
           id: autoId,
-          label: `${mission.clientName} / ${label} / ${mission.name}`,
+          label: `${mission.clientName} / ${mission.name} / ${resourceDescriptor}`,
           categoryId,
           familyId,
           monthlyAmounts: {},
@@ -249,11 +249,20 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
         }
       };
 
-      mission.freelanceStaffing?.forEach(f => processResource(f.id, `${f.firstName} ${f.lastName}`, 'f'));
-      mission.subcontractorStaffing?.forEach(s => processResource(s.id, s.entity, 's'));
+      mission.freelanceStaffing?.forEach(f => {
+        const entity = f.entity?.trim();
+        const fullName = `${f.firstName || ''} ${f.lastName || ''}`.trim();
+        const descriptor = entity || fullName || 'Freelance';
+        processResource(f.id, descriptor, 'f');
+      });
+
+      mission.subcontractorStaffing?.forEach(s => {
+        const descriptor = s.entity?.trim() || 'Sous-traitant';
+        processResource(s.id, descriptor, 's');
+      });
     });
 
-    // Classer systématiquement en ordre alphabétique par nom Client (qui commence chaque label d'une dépense automatique)
+    // Classer systématiquement en ordre alphabétique hiérarchique : Client / Nom de mission / Entité Juridique ou Nom et Prénom
     combined.sort((a, b) => a.label.localeCompare(b.label, 'fr', { sensitivity: 'base' }));
 
     storedExpenses.filter(e => !e.id.startsWith('auto-')).forEach(e => combined.push(e));
