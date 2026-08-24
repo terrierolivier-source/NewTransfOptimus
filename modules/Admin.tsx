@@ -6,7 +6,8 @@ import {
   Search, ArrowUpDown, ChevronUp, ChevronDown, FilterX,
   User as UserIcon, CalendarDays, LogOut, Database, Clock,
   ShieldAlert, List, Server, RefreshCw,
-  TrendingUp, Loader2, Check, AlertCircle
+  TrendingUp, Loader2, Check, AlertCircle,
+  History, RotateCcw, FileDown, Sparkles
 } from 'lucide-react';
 import { AppState, Country, Holiday, User, Mission, MissionStatus, BillingMode, Role, Collaborator, CollaboratorType } from '../types';
 import { generateId, formatDateDisplay } from '../utils';
@@ -23,7 +24,11 @@ import {
   validateAndParseExcel,
   FullBackup,
   ImportPreview,
-  ImportMode
+  ImportMode,
+  RestorePoint,
+  getRestorePoints,
+  createRestorePoint,
+  deleteRestorePoint
 } from '../services/backupService';
 
 interface AdminProps {
@@ -133,6 +138,34 @@ const Admin: React.FC<AdminProps> = ({ state, updateState }) => {
   const [isImporting, setIsImporting] = useState(false);
   const [importResult, setImportResult] = useState<{ success: boolean; report: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 1-Month Rolling Restore Points States
+  const [restorePoints, setRestorePoints] = useState<RestorePoint[]>([]);
+  const [isLoadingRestorePoints, setIsLoadingRestorePoints] = useState(false);
+  const [isCreatingRestorePoint, setIsCreatingRestorePoint] = useState(false);
+  const [selectedPointToRestore, setSelectedPointToRestore] = useState<RestorePoint | null>(null);
+  const [pointRestoreConfirmText, setPointRestoreConfirmText] = useState('');
+  const [isPointRestoreChecked, setIsPointRestoreChecked] = useState(false);
+  const [isPointRestoring, setIsPointRestoring] = useState(false);
+  const [pointActionFeedback, setPointActionFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  const fetchRestorePointsList = async () => {
+    setIsLoadingRestorePoints(true);
+    try {
+      const points = await getRestorePoints();
+      setRestorePoints(points);
+    } catch (e) {
+      console.error("Erreur chargement points de restauration", e);
+    } finally {
+      setIsLoadingRestorePoints(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'backups') {
+      fetchRestorePointsList();
+    }
+  }, [activeTab]);
 
   // Xsell Specific Import States
   const [xsellImportPreview, setXsellImportPreview] = useState<Partial<XsellOpportunity>[]>([]);
@@ -600,6 +633,104 @@ const Admin: React.FC<AdminProps> = ({ state, updateState }) => {
       setImportPreview(null);
       setRestoreConfirmationText('');
       setIsRestoreConfirmed(false);
+      // Refresh restore points list
+      fetchRestorePointsList();
+    }
+  };
+
+  // 1-Month Rolling Restore Point Handlers
+  const handleCreateManualPoint = async () => {
+    setIsCreatingRestorePoint(true);
+    setPointActionFeedback(null);
+    try {
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+      const dateStr = now.toLocaleDateString('fr-FR');
+      const res = await createRestorePoint('manual', `Sauvegarde manuelle du ${dateStr} à ${timeStr}`);
+      if (res.success && res.point) {
+        setRestorePoints(prev => [res.point!, ...prev]);
+        setPointActionFeedback({
+          type: 'success',
+          message: `Nouveau point de restauration enregistré avec succès (${res.point.summary.missions} missions, ${res.point.summary.budget_data} exercices budgétaires, ${res.point.summary.xsell_opportunities} opportunités Xsell).`
+        });
+      } else {
+        setPointActionFeedback({
+          type: 'error',
+          message: res.error || "Erreur lors de la création du point de restauration."
+        });
+      }
+    } catch (err: any) {
+      setPointActionFeedback({
+        type: 'error',
+        message: err?.message || "Une exception s'est produite lors de la sauvegarde."
+      });
+    } finally {
+      setIsCreatingRestorePoint(false);
+    }
+  };
+
+  const handleExecutePointRestore = async () => {
+    if (!selectedPointToRestore) return;
+    if (pointRestoreConfirmText !== 'RESTAURER' || !isPointRestoreChecked) {
+      alert("Veuillez cocher la case et taper 'RESTAURER' pour confirmer l'opération.");
+      return;
+    }
+
+    setIsPointRestoring(true);
+    try {
+      // 1. Créer d'abord un point de sécurité automatique avant écrasement
+      await createRestorePoint('auto', `Point de sécurité avant restauration de "${selectedPointToRestore.label}"`);
+
+      // 2. Exécuter la restauration intégrale
+      const result = await importBackupJson(selectedPointToRestore.backup, 'restore');
+      if (result.success) {
+        const cloudState = await loadStateFromCloud();
+        updateState(cloudState);
+        
+        setPointActionFeedback({
+          type: 'success',
+          message: `Restauration réussie de la version du ${new Date(selectedPointToRestore.createdAt).toLocaleDateString('fr-FR')} à ${new Date(selectedPointToRestore.createdAt).toLocaleTimeString('fr-FR')}. Toutes les données et calculs (missions, staffing, budgets multi-années, temps, Xsell) ont été rétablis avec succès.`
+        });
+        setSelectedPointToRestore(null);
+        setPointRestoreConfirmText('');
+        setIsPointRestoreChecked(false);
+        // Rafraîchir la liste des points
+        await fetchRestorePointsList();
+      } else {
+        setPointActionFeedback({
+          type: 'error',
+          message: result.report
+        });
+      }
+    } catch (err: any) {
+      setPointActionFeedback({
+        type: 'error',
+        message: err?.message || "Erreur lors de la restauration du point."
+      });
+    } finally {
+      setIsPointRestoring(false);
+    }
+  };
+
+  const handleDownloadPointJson = (point: RestorePoint) => {
+    try {
+      const blob = new Blob([JSON.stringify(point.backup, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `OptimusPlan_Restauration_${point.createdAt.replace(/[:.]/g, '-')}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert("Erreur lors du téléchargement du fichier JSON");
+    }
+  };
+
+  const handleDeletePoint = async (pointId: string) => {
+    if (!window.confirm("Êtes-vous sûr de vouloir supprimer ce point de restauration ?")) return;
+    const ok = await deleteRestorePoint(pointId);
+    if (ok) {
+      setRestorePoints(prev => prev.filter(p => p.id !== pointId));
     }
   };
 
@@ -1254,78 +1385,358 @@ const Admin: React.FC<AdminProps> = ({ state, updateState }) => {
       )}
 
 
-      {/* Backups Tab */}
+      {/* Backups Tab - 1 Month Rolling Restore Points */}
       {activeTab === 'backups' && (
-        <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
-            <div className="flex items-center gap-2">
-              <Database className="text-navy" size={20} />
-              <h2 className="font-bold text-gray-700 uppercase text-xs tracking-wider">
-                Système de Sauvegarde Automatique
-              </h2>
-            </div>
-            <div className="text-[10px] text-gray-400 font-medium">
-              Dernières 15 sauvegardes (1 par jour max)
-            </div>
-          </div>
-
-          {isLoadingBackups ? (
-            <div className="p-20 text-center text-gray-400 font-medium">Chargement des sauvegardes...</div>
-          ) : backups.length === 0 ? (
-            <div className="p-20 text-center text-gray-400 italic font-medium">Aucune sauvegarde trouvée.</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
-                <thead>
-                  <tr className="text-[10px] uppercase text-gray-400 font-bold border-b">
-                    <th className="p-4">Date de sauvegarde</th>
-                    <th className="p-4">Heure</th>
-                    <th className="p-4">Créé par</th>
-                    <th className="p-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {backups.map((backup) => (
-                    <tr key={backup.id} className="text-sm hover:bg-gray-50 group">
-                      <td className="p-4 font-bold text-navy flex items-center gap-2">
-                        <Clock size={14} className="text-gray-400" />
-                        {formatDateDisplay(backup.date)}
-                      </td>
-                      <td className="p-4 text-gray-500 font-mono text-xs">
-                        {new Date(backup.timestamp).toLocaleTimeString()}
-                      </td>
-                      <td className="p-4 text-xs text-navy/70 italic">
-                        {backup.createdBy || 'Système'}
-                      </td>
-                      <td className="p-4 text-right">
-                        <button 
-                          onClick={() => {
-                            const blob = new Blob([JSON.stringify(backup.state, null, 2)], { type: 'application/json' });
-                            const url = URL.createObjectURL(blob);
-                            const a = document.createElement('a');
-                            a.href = url;
-                            a.download = `backup_${backup.date}.json`;
-                            a.click();
-                            URL.revokeObjectURL(url);
-                          }} 
-                          className="flex items-center gap-2 px-3 py-1.5 bg-navy text-white rounded-lg text-xs font-bold hover:bg-navy/90 transition-colors ml-auto shadow-sm"
-                        >
-                          <Download size={14} /> Télécharger JSON
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        <div className="space-y-6">
+          {/* Action Feedback Banner */}
+          {pointActionFeedback && (
+            <div className={`p-4 rounded-xl border flex items-start justify-between gap-3 animate-in fade-in duration-300 ${
+              pointActionFeedback.type === 'success' 
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-900' 
+                : 'bg-red-50 border-red-200 text-red-900'
+            }`}>
+              <div className="flex items-start gap-3">
+                {pointActionFeedback.type === 'success' ? (
+                  <CheckCircle size={20} className="text-emerald-600 shrink-0 mt-0.5" />
+                ) : (
+                  <AlertCircle size={20} className="text-red-600 shrink-0 mt-0.5" />
+                )}
+                <div>
+                  <p className="text-sm font-bold">
+                    {pointActionFeedback.type === 'success' ? 'Opération effectuée' : 'Erreur'}
+                  </p>
+                  <p className="text-xs mt-0.5 whitespace-pre-line opacity-90">{pointActionFeedback.message}</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setPointActionFeedback(null)}
+                className="text-gray-400 hover:text-gray-600 p-1"
+              >
+                <X size={16} />
+              </button>
             </div>
           )}
-          
-          <div className="p-4 bg-yellow-50 border-t border-yellow-100 flex items-start gap-3">
-             <Info className="text-yellow-600 shrink-0 mt-0.5" size={16} />
-             <p className="text-[10px] text-yellow-800 leading-relaxed">
-               Une sauvegarde complète de l'application est effectuée automatiquement chaque jour lors de la première connexion d'un administrateur à partir de minuit.
-               Ces sauvegardes contiennent l'intégralité de l'état de l'application (utilisateurs, missions, planning, budgets) et peuvent être extraites en JSON pour archivage.
-             </p>
+
+          {/* Main Card */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="p-5 md:p-6 bg-gradient-to-r from-navy via-navy to-navy-light text-white flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-white/10 rounded-xl text-yellow-accent backdrop-blur-sm">
+                  <History size={24} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h2 className="font-bold text-base md:text-lg text-white tracking-wide">
+                      Points de Restauration
+                    </h2>
+                    <span className="px-2.5 py-0.5 bg-yellow-accent/20 border border-yellow-accent/40 text-yellow-accent rounded-full text-[10px] font-black uppercase tracking-wider">
+                      1 mois glissant (30 jours)
+                    </span>
+                  </div>
+                  <p className="text-xs text-white/70 mt-1 max-w-2xl leading-relaxed">
+                    Restaurez l'intégralité de votre application à une date et heure précise (Missions, Staffing, Budgets multi-années & automatisations, Feuilles de temps, Xsell).
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 w-full md:w-auto shrink-0">
+                <button
+                  onClick={fetchRestorePointsList}
+                  disabled={isLoadingRestorePoints}
+                  className="p-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl transition-colors border border-white/10 flex items-center gap-1.5 text-xs font-bold"
+                  title="Actualiser la liste"
+                >
+                  <RefreshCw size={15} className={isLoadingRestorePoints ? 'animate-spin' : ''} />
+                  <span className="hidden sm:inline">Actualiser</span>
+                </button>
+                <button
+                  onClick={handleCreateManualPoint}
+                  disabled={isCreatingRestorePoint}
+                  className="flex-1 md:flex-none px-4 py-2.5 bg-yellow-accent hover:bg-yellow-accent/90 text-navy font-bold rounded-xl text-xs flex items-center justify-center gap-2 shadow-lg transition-all"
+                >
+                  {isCreatingRestorePoint ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      <span>Enregistrement...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save size={16} />
+                      <span>Créer un point maintenant</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Content List */}
+            {isLoadingRestorePoints ? (
+              <div className="py-24 text-center text-gray-400 font-medium flex flex-col items-center justify-center gap-3">
+                <Loader2 size={32} className="animate-spin text-navy/40" />
+                <p className="text-sm">Chargement des points de restauration...</p>
+              </div>
+            ) : restorePoints.length === 0 ? (
+              <div className="py-20 px-4 text-center space-y-4">
+                <div className="w-16 h-16 bg-navy/5 text-navy/30 rounded-2xl flex items-center justify-center mx-auto">
+                  <Database size={32} />
+                </div>
+                <div className="max-w-md mx-auto">
+                  <h3 className="text-base font-bold text-navy">Aucun point de restauration enregistré</h3>
+                  <p className="text-xs text-gray-400 mt-1 leading-relaxed">
+                    Cliquez sur "Créer un point maintenant" pour enregistrer un instantané complet de votre application. Une sauvegarde automatique est également déclenchée quotidiennement.
+                  </p>
+                </div>
+                <button
+                  onClick={handleCreateManualPoint}
+                  disabled={isCreatingRestorePoint}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 bg-navy text-white rounded-xl text-xs font-bold hover:bg-navy-light transition-all shadow-sm"
+                >
+                  <Plus size={16} /> Créer le premier point
+                </button>
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                <div className="bg-gray-50/80 px-6 py-3 flex items-center justify-between text-[11px] font-bold text-gray-400 uppercase tracking-wider border-b">
+                  <span>{restorePoints.length} point(s) disponible(s) sur les 30 derniers jours</span>
+                  <span className="hidden md:inline text-[10px] text-gray-400">Purge automatique au-delà de 30 jours</span>
+                </div>
+                {restorePoints.map((point) => {
+                  const pDate = new Date(point.createdAt);
+                  const isAuto = point.type === 'auto';
+                  return (
+                    <div 
+                      key={point.id} 
+                      className="p-5 md:p-6 hover:bg-gray-50/70 transition-all flex flex-col lg:flex-row lg:items-center justify-between gap-4 group"
+                    >
+                      {/* Left: Info */}
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2.5 flex-wrap">
+                          <div className="flex items-center gap-1.5 font-black text-navy text-sm md:text-base">
+                            <Clock size={16} className="text-gray-400 shrink-0" />
+                            <span>
+                              {pDate.toLocaleDateString('fr-FR', {
+                                weekday: 'short',
+                                day: '2-digit',
+                                month: 'short',
+                                year: 'numeric'
+                              })}
+                            </span>
+                            <span className="text-yellow-600 font-mono">
+                              à {pDate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                            </span>
+                          </div>
+
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                            isAuto 
+                              ? 'bg-blue-50 text-blue-700 border border-blue-200' 
+                              : 'bg-amber-50 text-amber-700 border border-amber-200'
+                          }`}>
+                            {isAuto ? 'Automatique' : 'Manuelle'}
+                          </span>
+                        </div>
+
+                        <p className="text-xs text-gray-600 font-medium">
+                          {point.label}
+                        </p>
+
+                        {/* Summary Badges */}
+                        <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                          <span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-[11px] font-bold">
+                            📊 {point.summary.missions} missions
+                          </span>
+                          <span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-[11px] font-bold">
+                            👥 {point.summary.collaborators} consultants
+                          </span>
+                          <span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-[11px] font-bold">
+                            🕒 {point.summary.timesheets} temps
+                          </span>
+                          <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded text-[11px] font-bold">
+                            💰 {point.summary.budget_data} ex. budget & calculs
+                          </span>
+                          <span className="px-2 py-0.5 bg-purple-50 text-purple-700 border border-purple-100 rounded text-[11px] font-bold">
+                            🚀 {point.summary.xsell_opportunities} Xsell
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Right: Actions */}
+                      <div className="flex items-center gap-2 self-end lg:self-center shrink-0">
+                        <button
+                          onClick={() => handleDownloadPointJson(point)}
+                          className="p-2.5 text-gray-500 hover:text-navy hover:bg-gray-100 rounded-xl transition-colors border border-gray-200 text-xs font-bold flex items-center gap-1.5"
+                          title="Télécharger l'instantané JSON"
+                        >
+                          <FileDown size={15} />
+                          <span className="hidden sm:inline">JSON</span>
+                        </button>
+                        
+                        <button
+                          onClick={() => handleDeletePoint(point.id)}
+                          className="p-2.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors border border-gray-200 text-xs font-bold"
+                          title="Supprimer ce point"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            setSelectedPointToRestore(point);
+                            setPointRestoreConfirmText('');
+                            setIsPointRestoreChecked(false);
+                          }}
+                          className="px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-2 uppercase tracking-wider"
+                        >
+                          <RotateCcw size={15} />
+                          <span>Restaurer cette version</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Bottom Info Banner */}
+            <div className="p-4 bg-yellow-50/80 border-t border-yellow-100 flex items-start gap-3">
+              <Info className="text-yellow-600 shrink-0 mt-0.5" size={18} />
+              <div className="text-xs text-yellow-900 leading-relaxed">
+                <p className="font-bold">Fonctionnement de la restauration :</p>
+                <p className="mt-0.5">
+                  La restauration remplace les données de l'application par l'instantané sélectionné. Les calculs budgétaires automatisés, les pointages de dépenses, les affectations staffing et les opportunités Xsell sont réintégrés fidèlement. Un point de sécurité automatique est également généré juste avant chaque restauration pour vous permettre de revenir en arrière à tout moment.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal for Restore Point */}
+      {selectedPointToRestore && (
+        <div className="fixed inset-0 bg-navy/70 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-red-100 animate-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="bg-red-600 p-5 text-white flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-white/20 rounded-xl">
+                  <ShieldAlert size={24} />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold uppercase tracking-wider">
+                    Confirmer la restauration
+                  </h3>
+                  <p className="text-xs text-white/80 mt-0.5">
+                    Restauration complète de l'application
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setSelectedPointToRestore(null)} 
+                className="text-white/80 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-5">
+              <div className="bg-red-50 border border-red-200 rounded-xl p-4 space-y-2">
+                <p className="text-xs font-bold text-red-900 uppercase tracking-wider">
+                  ⚠️ Action de remplacement intégral
+                </p>
+                <p className="text-xs text-red-800 leading-relaxed">
+                  Vous vous apprêtez à restaurer l'état complet de l'application à la date du :
+                </p>
+                <div className="p-2.5 bg-white rounded-lg border border-red-200 text-xs font-bold text-navy flex items-center justify-between">
+                  <span>📅 {new Date(selectedPointToRestore.createdAt).toLocaleDateString('fr-FR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}</span>
+                  <span className="text-red-600 font-mono font-bold">⏰ {new Date(selectedPointToRestore.createdAt).toLocaleTimeString('fr-FR')}</span>
+                </div>
+              </div>
+
+              {/* Data Summary to be restored */}
+              <div className="bg-gray-50 rounded-xl p-4 space-y-2 border border-gray-200">
+                <h4 className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">
+                  Données qui seront rétablies :
+                </h4>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="p-2 bg-white rounded border border-gray-100 font-semibold text-navy">
+                    📊 <span className="font-bold">{selectedPointToRestore.summary.missions}</span> Missions
+                  </div>
+                  <div className="p-2 bg-white rounded border border-gray-100 font-semibold text-navy">
+                    👥 <span className="font-bold">{selectedPointToRestore.summary.collaborators}</span> Collaborateurs
+                  </div>
+                  <div className="p-2 bg-white rounded border border-gray-100 font-semibold text-navy">
+                    🕒 <span className="font-bold">{selectedPointToRestore.summary.timesheets}</span> Feuilles de temps
+                  </div>
+                  <div className="p-2 bg-white rounded border border-gray-100 font-semibold text-navy">
+                    💰 <span className="font-bold">{selectedPointToRestore.summary.budget_data}</span> Budgets & formules
+                  </div>
+                  <div className="col-span-2 p-2 bg-white rounded border border-gray-100 font-semibold text-purple-700">
+                    🚀 <span className="font-bold">{selectedPointToRestore.summary.xsell_opportunities}</span> Opportunités Xsell
+                  </div>
+                </div>
+              </div>
+
+              {/* Checkbox and Input Confirmations */}
+              <div className="space-y-4 pt-1">
+                <label className="flex items-start gap-3 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={isPointRestoreChecked}
+                    onChange={e => setIsPointRestoreChecked(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 rounded text-red-600 focus:ring-red-500 border-gray-300"
+                  />
+                  <span className="text-xs font-bold text-gray-700">
+                    Je comprends que cette opération écrasera les données actuelles pour restaurer fidèlement cette version.
+                  </span>
+                </label>
+
+                {isPointRestoreChecked && (
+                  <div className="space-y-2 animate-in fade-in duration-200">
+                    <label className="block text-[10px] font-bold text-red-600 uppercase tracking-widest">
+                      Tapez <span className="underline">RESTAURER</span> pour confirmer :
+                    </label>
+                    <input
+                      type="text"
+                      value={pointRestoreConfirmText}
+                      onChange={e => setPointRestoreConfirmText(e.target.value)}
+                      placeholder="RESTAURER"
+                      className="w-full bg-white border-2 border-red-300 text-red-700 font-black px-4 py-2.5 rounded-xl outline-none focus:border-red-600 text-center tracking-widest text-sm uppercase placeholder:font-normal placeholder:normal-case"
+                      autoFocus
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-gray-50 border-t flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setSelectedPointToRestore(null)}
+                disabled={isPointRestoring}
+                className="px-5 py-2.5 border border-gray-200 rounded-xl text-xs font-bold text-gray-600 hover:bg-gray-100 transition-colors uppercase tracking-wider"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={handleExecutePointRestore}
+                disabled={isPointRestoring || !isPointRestoreChecked || pointRestoreConfirmText !== 'RESTAURER'}
+                className="px-6 py-2.5 bg-red-600 hover:bg-red-700 disabled:bg-gray-300 text-white rounded-xl text-xs font-bold transition-all shadow-lg flex items-center gap-2 uppercase tracking-wider"
+              >
+                {isPointRestoring ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    <span>Restauration en cours...</span>
+                  </>
+                ) : (
+                  <>
+                    <RotateCcw size={16} />
+                    <span>Confirmer la restauration</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

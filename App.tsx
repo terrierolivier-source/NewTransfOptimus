@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { AppState, User, Role, Country } from './types';
 import { getInitialState, saveState, syncStateToCloud, createDailyBackup, loadStateFromCloud, setupRealtimeSync } from './services/dataService';
+import { checkAndTriggerDailyAutoBackup } from './services/backupService';
 import { onAuthStateChange, signOut, mapSupabaseUserToAppUser, getCurrentSession } from './services/authService';
 import { normalizeTimesheetEntry, getDedupedTimesheets } from './utils';
 import Layout from './components/Layout';
@@ -121,11 +122,20 @@ const App: React.FC = () => {
         console.log("[Init] Initial load complete.");
         setIsInitialLoadComplete(true);
 
+        // Check if a daily backup point should be created (00h01 and 12h00)
+        checkAndTriggerDailyAutoBackup();
+
+        // Check every 2 minutes while user has app open
+        const backupInterval = setInterval(() => {
+          checkAndTriggerDailyAutoBackup();
+        }, 2 * 60 * 1000);
+
         // Real-time sync setup
         unsubs.forEach(u => u());
         unsubs = [];
         const newUnsubs = setupRealtimeSync(setState);
         unsubs.push(...newUnsubs);
+        unsubs.push(() => clearInterval(backupInterval));
       } catch (err) {
         console.error("[Init] Data load error", err);
       } finally {

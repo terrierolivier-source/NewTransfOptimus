@@ -741,17 +741,22 @@ export const loadStateFromCloud = async (): Promise<Partial<AppState>> => {
       results.timesheets = await loadTimesheetsFromCloud();
     } catch (e) { console.warn('Timesheets load failed', e); }
 
-    // Budget
-    if (results.globalFY) {
-      try {
-        const { data: budget } = await supabase.from('budget_data').select('*').eq('fy', results.globalFY).single();
-        if (budget) {
-          results.manualExpenses = { [results.globalFY]: budget.manual_expenses || {} };
-          results.budgetFamilies = { [results.globalFY]: budget.budget_families || {} };
-          results.budgetValues = { [results.globalFY]: budget.budget_values || {} };
-        }
-      } catch (e) { console.warn('Budget load failed', e); }
-    }
+    // Budget (Charger tous les exercices fiscaux disponibles pour garantir l'intégrité multi-FY)
+    try {
+      const { data: allBudgets } = await supabase.from('budget_data').select('*');
+      if (allBudgets && allBudgets.length > 0) {
+        results.manualExpenses = {};
+        results.budgetFamilies = {};
+        results.budgetValues = {};
+        allBudgets.forEach(b => {
+          if (b.fy) {
+            results.manualExpenses![b.fy] = b.manual_expenses || {};
+            results.budgetFamilies![b.fy] = b.budget_families || {};
+            results.budgetValues![b.fy] = b.budget_values || {};
+          }
+        });
+      }
+    } catch (e) { console.warn('Budget multi-FY load failed', e); }
     return results;
   } catch (e) {
     console.warn('Supabase global load failed', e);
