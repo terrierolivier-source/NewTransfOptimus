@@ -696,8 +696,8 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
       name, 
       count: data.count,
       revenue: data.revenue
-    })).sort((a, b) => b.count - a.count);
-  }, [missionsForSelectedFY, globalFY]);
+    })).sort((a, b) => b.revenue - a.revenue);
+  }, [missionsForSelectedFY, globalFY, missionMetrics]);
 
   const alerts = useMemo(() => {
     const eligibleCollaborators = collaborators.filter(c => c.active && (globalCountry === 'Global' || c.country === globalCountry) && isOperationalCollaborator(c));
