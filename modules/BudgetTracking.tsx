@@ -173,6 +173,34 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
 
   const autoDefaults = useMemo(() => calculateAutoStaffingDefaults(), [missions, globalFY, state.holidays]);
 
+  const currentFamilies = useMemo(() => {
+    const templateCountry = isGlobalView ? Country.FRANCE : (globalCountry as Country);
+    const fams = budgetFamilies[globalFY]?.[templateCountry] || [];
+    if (!fams.some(f => f.categoryId === 'contractors')) {
+      return [
+        ...fams,
+        { id: 'fam-c3', label: 'Transfo => Ext (entité externe)', categoryId: 'contractors' }
+      ];
+    }
+    return fams;
+  }, [budgetFamilies, globalFY, globalCountry, isGlobalView]);
+
+  const defaultContractorFamily = useMemo(() => {
+    const contractorFamilies = (currentFamilies || []).filter(f => f.categoryId === 'contractors');
+    // Priorité 1 : Famille "Transfo => Ext (entité externe)" ou approchant
+    const matchTransfoExt = contractorFamilies.find(f => {
+      const l = f.label.toLowerCase();
+      return l.includes('transfo => ext') || l.includes('transfo=>ext') || (l.includes('transfo') && l.includes('ext'));
+    });
+    if (matchTransfoExt) return matchTransfoExt;
+
+    // Priorité 2 : Première famille de la catégorie contractors
+    if (contractorFamilies.length > 0) return contractorFamilies[0];
+
+    // Fallback par défaut
+    return { id: 'fam-c3', label: 'Transfo => Ext (entité externe)', categoryId: 'contractors' };
+  }, [currentFamilies]);
+
   /**
    * Source unique de vérité pour toutes les dépenses.
    * N'inclut plus les coûts internes automatiques (gérés manuellement dans PERSONNEL EXPENSES)
@@ -193,7 +221,8 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
         const stored = storedExpenses.find(e => e.id === autoId);
         
         const categoryId = 'contractors';
-        const familyId = 'fam-c1';
+        // Utiliser la famille "Transfo => Ext (entité externe)"
+        const familyId = defaultContractorFamily.id;
 
         const expense: ManualExpense = {
           id: autoId,
@@ -230,12 +259,7 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
     storedExpenses.filter(e => !e.id.startsWith('auto-')).forEach(e => combined.push(e));
 
     return combined;
-  }, [manualExpenses, globalFY, globalCountry, isGlobalView, missions, autoDefaults, users]);
-
-  const currentFamilies = useMemo(() => {
-    const templateCountry = isGlobalView ? Country.FRANCE : (globalCountry as Country);
-    return budgetFamilies[globalFY]?.[templateCountry] || [];
-  }, [budgetFamilies, globalFY, globalCountry, isGlobalView]);
+  }, [manualExpenses, globalFY, globalCountry, isGlobalView, missions, autoDefaults, users, defaultContractorFamily]);
 
   const currentBudgetValues = useMemo(() => {
     const aggregated: Record<string, number> = {};
