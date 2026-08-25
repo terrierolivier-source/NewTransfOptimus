@@ -854,6 +854,29 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
       .sort((a, b) => b.fyRevenue - a.fyRevenue);
   }, [selectedTypology, missionsForSelectedFY, missionMetrics]);
 
+  const topClients = useMemo(() => {
+    const clientMap: Record<string, { clientName: string; fyRevenue: number; missionCount: number }> = {};
+    
+    missionsForSelectedFY.forEach(m => {
+      const metrics = missionMetrics.find(mm => mm.mission.id === m.id);
+      const rev = metrics?.fyRevenue || 0;
+      if (rev <= 0) return;
+      const rawName = (m.clientName || '').trim();
+      if (!rawName) return;
+      
+      const key = rawName.toLowerCase();
+      if (!clientMap[key]) {
+        clientMap[key] = { clientName: rawName, fyRevenue: 0, missionCount: 0 };
+      }
+      clientMap[key].fyRevenue += rev;
+      clientMap[key].missionCount += 1;
+    });
+
+    return Object.values(clientMap)
+      .sort((a, b) => b.fyRevenue - a.fyRevenue)
+      .slice(0, 5);
+  }, [missionsForSelectedFY, missionMetrics]);
+
   // Styles uniformisés pour les titres
   const CARD_TITLE_CLASS = "text-[12px] font-black text-gray-400 uppercase tracking-widest mb-4";
   const SECTION_TITLE_CLASS = "text-[12px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-4";
@@ -1178,27 +1201,34 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
         </div>
 
         <div className={CONTENT_BLOCK_CLASS}>
-          <h3 className={`${SECTION_TITLE_CLASS} mb-6`}>TOP 5 MISSIONS PAR CA {globalFY} (+SF)</h3>
+          <h3 className={`${SECTION_TITLE_CLASS} mb-6`}>TOP 5 CLIENTS PAR CA {globalFY} (+SF)</h3>
           <div className="space-y-2.5 flex-1 flex flex-col justify-center">
-            {missionMetrics
-              .filter(mm => missionsForSelectedFY.some(mfy => mfy.id === mm.mission.id) && mm.mission.status !== MissionStatus.NON_DEMARREE)
-              .sort((a, b) => b.fyRevenue - a.fyRevenue)
-              .slice(0, 5)
-              .map((m, i) => (
-              <div key={i} className="flex items-center justify-between p-2.5 bg-slate-100/50 rounded-2xl border border-transparent hover:border-yellow-accent/20 transition-all group">
-                <div className="flex items-center gap-4 min-w-0">
-                  <div className="w-7 h-7 rounded-xl bg-yellow-accent flex items-center justify-center font-black text-white text-[9px] shadow-sm shrink-0 group-hover:scale-105 transition-transform">{i + 1}</div>
-                  <div className="min-w-0">
-                    <p className="text-[10px] font-black text-navy uppercase tracking-tight truncate">{m.mission.clientName}</p>
-                    <p className="text-[8px] text-gray-500 font-bold uppercase tracking-widest mt-0.5 truncate border-b border-yellow-accent/10 pb-px w-fit max-w-full">{m.mission.name}</p>
-                  </div>
-                </div>
-                <div className="text-right shrink-0 ml-4">
-                  <p className="text-xs font-black text-navy">{formatNumberWithDots(m.fyRevenue)} €</p>
-                  <p className="text-[7px] font-black text-gray-400 uppercase tracking-widest">CA {globalFY}</p>
-                </div>
+            {topClients.length === 0 ? (
+              <div className="py-8 text-center text-xs text-gray-400 italic">
+                Aucun client avec du CA sur {globalFY}
               </div>
-            ))}
+            ) : (
+              topClients.map((client, i) => {
+                const shareOfGlobal = totalForecastRevenue > 0 ? (client.fyRevenue / totalForecastRevenue) * 100 : 0;
+                return (
+                  <div key={i} className="flex items-center justify-between p-2.5 bg-slate-100/50 rounded-2xl border border-transparent hover:border-yellow-accent/20 transition-all group">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-7 h-7 rounded-xl bg-yellow-accent flex items-center justify-center font-black text-white text-[9px] shadow-sm shrink-0 group-hover:scale-105 transition-transform">{i + 1}</div>
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-black text-navy uppercase tracking-tight truncate">{client.clientName}</p>
+                        <p className="text-[8px] text-gray-500 font-bold uppercase tracking-widest mt-0.5 truncate">
+                          {client.missionCount} mission{client.missionCount > 1 ? 's' : ''} • {shareOfGlobal.toFixed(1)}% du CA global
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0 ml-4">
+                      <p className="text-xs font-black text-navy">{formatNumberWithDots(client.fyRevenue)} €</p>
+                      <p className="text-[7px] font-black text-gray-400 uppercase tracking-widest">CA {globalFY}</p>
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
 
