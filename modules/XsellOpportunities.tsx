@@ -1074,9 +1074,23 @@ const XsellOpportunities: React.FC<XsellOpportunitiesProps> = ({ globalFY = 'FY2
       statusOpportunities[s].push(o);
     });
 
-    const transfoInProgress = listCurrentFY
-      .filter(o => o.status === '04 - mission en cours')
-      .reduce((sum, o) => sum + (o.amount_to_invoice || 0), 0);
+    // Calcul du montant Prév. Transfo (Xsell) pour le module Suivi Xsell :
+    // Aligné rigoureusement sur le Dashboard (eligibleTransfoRevenue)
+    // Tient compte des missions en cours ('04 - mission en cours') ET des missions terminées ('05 - mission terminée'),
+    // quel que soit le statut de facturation
+    const eligibleTransfoRevenue = listCurrentFY
+      .filter(o => {
+        const s = (o.status || '').trim().toLowerCase();
+        return s.includes('04') || s.includes('en cours') || s.includes('05') || s.includes('terminée') || s.includes('terminee');
+      })
+      .reduce((sum, o) => {
+        const amount = o.amount_to_invoice !== null && o.amount_to_invoice !== undefined && o.amount_to_invoice > 0
+          ? o.amount_to_invoice
+          : Math.round((o.estimated_revenue || 0) * parseRefacPercentageToRatio(o.refac_percentage));
+        return sum + amount;
+      }, 0);
+
+    const transfoInProgress = eligibleTransfoRevenue;
 
     const countInProgress = listIgnoreYear.filter(o => o.status === '04 - mission en cours').length;
 
@@ -1253,7 +1267,7 @@ const XsellOpportunities: React.FC<XsellOpportunitiesProps> = ({ globalFY = 'FY2
             <div className="text-xl font-medium text-emerald-600 truncate">{formatCurrency(metrics.transfoInProgress)}</div>
             <div className="text-[11px] font-bold text-gray-500 flex items-center gap-1.5 mt-1">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
-              <span>mission en cours</span>
+              <span>Prév. Transfo (Xsell)</span>
             </div>
           </div>
           <div className="absolute right-4 top-4 bg-emerald-50 text-emerald-600 p-3 rounded-full">

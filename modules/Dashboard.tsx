@@ -158,10 +158,6 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
       statusOpportunities[s].push(o);
     });
 
-    const transfoInProgress = listCurrentFY
-      .filter(o => o.status === '04 - mission en cours')
-      .reduce((sum, o) => sum + (o.amount_to_invoice || 0), 0);
-
     const countInProgress = list.filter(o => o.status === '04 - mission en cours').length;
 
     const transfoCompleted = listCurrentFY
@@ -190,6 +186,9 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
           : Math.round((o.estimated_revenue || 0) * parseRefacPercentageToRatio(o.refac_percentage));
         return sum + amount;
       }, 0);
+
+    // Aligné sur eligibleTransfoRevenue pour assurer la stricte égalité de valeur et montant avec l'indicateur CA Prévisionnel
+    const transfoInProgress = eligibleTransfoRevenue;
 
     const epsaRevenue = listCurrentFY
       .filter(o => (o.beneficiary_entity || '').toLowerCase().includes('epsa'))
@@ -1321,7 +1320,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
               <div className="text-xl font-medium text-emerald-600 truncate">{formatCurrencyXsell(xsellMetrics.transfoInProgress)}</div>
               <div className="text-[11px] font-bold text-gray-500 flex items-center gap-1.5 mt-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
-                <span>mission en cours</span>
+                <span>Prév. Transfo (Xsell)</span>
               </div>
             </div>
             <div className="absolute right-4 top-4 bg-emerald-50 text-emerald-600 p-3 rounded-full">
