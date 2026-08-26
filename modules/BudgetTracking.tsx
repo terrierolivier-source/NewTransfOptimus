@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { AppState, Country, Mission, MonthlyBillingOverride, ManualExpense, BudgetFamily, ExpenseStatus } from '../types';
 import { 
   parseISO, 
@@ -109,6 +109,98 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
   };
 
   const { missions, globalCountry, globalFY, manualExpenses, budgetFamilies, budgetValues, users } = state;
+
+  // Référence persistante au state pour la synchronisation débouncée
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  // Synchronisation centralisée débouncée (2s) des données Budget vers Supabase
+  const isInitialMount = useRef(true);
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+
+    debounceTimerRef.current = setTimeout(async () => {
+      try {
+        await syncBudgetDataToCloud(stateRef.current);
+      } catch (e) {
+        console.error('Error syncing budget data to cloud (debounced):', e);
+      }
+    }, 2000);
+
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, [state.manualExpenses, state.budgetFamilies, state.budgetValues]);
+
+  // Détection non-bloquante multi-onglets / multi-fenêtres
+  const [hasMultipleTabs, setHasMultipleTabs] = useState(false);
+
+  useEffect(() => {
+    let tabId = sessionStorage.getItem('optimus_budget_tab_id');
+    if (!tabId) {
+      tabId = 'tab_' + Math.random().toString(36).substring(2, 9) + '_' + Date.now();
+      sessionStorage.setItem('optimus_budget_tab_id', tabId);
+    }
+
+    const checkOtherTabs = () => {
+      try {
+        const stored = localStorage.getItem('optimus_budget_heartbeat');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed && parsed.tabId !== tabId && Date.now() - parsed.timestamp < 10000) {
+            setHasMultipleTabs(true);
+            return;
+          }
+        }
+        setHasMultipleTabs(false);
+      } catch {
+        setHasMultipleTabs(false);
+      }
+    };
+
+    const emitHeartbeat = () => {
+      try {
+        localStorage.setItem(
+          'optimus_budget_heartbeat',
+          JSON.stringify({ tabId, timestamp: Date.now() })
+        );
+      } catch (e) {
+        console.warn('Unable to emit budget heartbeat', e);
+      }
+    };
+
+    emitHeartbeat();
+    checkOtherTabs();
+
+    const heartbeatInterval = setInterval(emitHeartbeat, 4000);
+    const checkInterval = setInterval(checkOtherTabs, 5000);
+
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'optimus_budget_heartbeat') {
+        checkOtherTabs();
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      clearInterval(heartbeatInterval);
+      clearInterval(checkInterval);
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, []);
   const currentYearInt = parseInt(globalFY?.replace('FY', '') || '2025');
   const fyStart = new Date(currentYearInt, 1, 1);
   const fyEnd = new Date(currentYearInt + 1, 0, 31);
@@ -459,12 +551,6 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
       
       const newManualExpenses = { ...manualExpenses, [globalFY]: { ...(manualExpenses[globalFY] || {}), [countryKey]: nextBucket } };
       updateState({ manualExpenses: newManualExpenses });
-      
-      try {
-        await syncBudgetDataToCloud({ ...state, manualExpenses: newManualExpenses });
-      } catch (e) {
-        console.error('Error syncing manual expense comment:', e);
-      }
     }
     setActiveCommentCell(null);
   };
@@ -489,7 +575,7 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
     setActivePoMissionId(null);
   };
 
-  const handleUpdateExpenseAmount = async (id: string, monthId: number, value: string) => {
+  const handleUpdateExpenseAmount = (id: string, monthId: number, value: string) => {
     if (isGlobalView) return;
     const countryKey = globalCountry as string;
     const cleanValue = value.replace(/[^\d-]/g, '');
@@ -517,15 +603,9 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
 
     const newManualExpenses = { ...manualExpenses, [globalFY]: { ...(manualExpenses[globalFY] || {}), [countryKey]: nextBucket } };
     updateState({ manualExpenses: newManualExpenses });
-    
-    try {
-      await syncBudgetDataToCloud({ ...state, manualExpenses: newManualExpenses });
-    } catch (e) {
-      console.error('Error syncing manual expense amount:', e);
-    }
   };
 
-  const handleToggleExpenseStatus = async (id: string, monthId: number) => {
+  const handleToggleExpenseStatus = (id: string, monthId: number) => {
     if (isGlobalView) return;
     const countryKey = globalCountry as string;
     const bucket = manualExpenses[globalFY]?.[countryKey] || [];
@@ -557,44 +637,26 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
 
     const newManualExpenses = { ...manualExpenses, [globalFY]: { ...(manualExpenses[globalFY] || {}), [countryKey]: nextBucket } };
     updateState({ manualExpenses: newManualExpenses });
-
-    try {
-      await syncBudgetDataToCloud({ ...state, manualExpenses: newManualExpenses });
-    } catch (e) {
-      console.error('Error syncing manual expense status:', e);
-    }
   };
 
-  const handleAddFamily = async (categoryId: string) => {
+  const handleAddFamily = (categoryId: string) => {
     if (isGlobalView) return;
     const newFam: BudgetFamily = { id: generateId(), label: 'Nouvelle Famille...', categoryId };
     const nextFamilies = { ...budgetFamilies };
     if (!nextFamilies[globalFY]) nextFamilies[globalFY] = {};
     nextFamilies[globalFY][globalCountry as string] = [...(nextFamilies[globalFY][globalCountry as string] || []), newFam];
     updateState({ budgetFamilies: nextFamilies });
-
-    try {
-      await syncBudgetDataToCloud({ ...state, budgetFamilies: nextFamilies });
-    } catch (e) {
-      console.error('Error syncing budget families (add):', e);
-    }
   };
 
-  const handleUpdateFamilyLabel = async (id: string, label: string) => {
+  const handleUpdateFamilyLabel = (id: string, label: string) => {
     if (isGlobalView) return;
     const countryKey = globalCountry as string;
     const nextFams = (budgetFamilies[globalFY][countryKey] || []).map(f => f.id === id ? { ...f, label } : f);
     const nextFamilies = { ...budgetFamilies, [globalFY]: { ...budgetFamilies[globalFY], [countryKey]: nextFams } };
     updateState({ budgetFamilies: nextFamilies });
-
-    try {
-      await syncBudgetDataToCloud({ ...state, budgetFamilies: nextFamilies });
-    } catch (e) {
-      console.error('Error syncing budget families (update):', e);
-    }
   };
 
-  const handleDeleteFamily = async (id: string) => {
+  const handleDeleteFamily = (id: string) => {
     if (isGlobalView) return;
     const countryKey = globalCountry as string;
     const nextFams = (budgetFamilies[globalFY][countryKey] || []).filter(f => f.id !== id);
@@ -607,15 +669,9 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
       budgetFamilies: nextFamilies,
       manualExpenses: nextManualExpenses
     });
-
-    try {
-      await syncBudgetDataToCloud({ ...state, budgetFamilies: nextFamilies, manualExpenses: nextManualExpenses });
-    } catch (e) {
-      console.error('Error syncing budget data (delete family):', e);
-    }
   };
 
-  const handleAddExpenseRow = async (categoryId: string, familyId: string) => {
+  const handleAddExpenseRow = (categoryId: string, familyId: string) => {
     if (isGlobalView) return;
     const countryKey = globalCountry as string;
     const newExpense: ManualExpense = { id: generateId(), label: 'Libellé ligne...', categoryId, familyId, monthlyAmounts: {}, monthlyComments: {}, monthlyStatuses: {} };
@@ -624,43 +680,25 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
     const nextBucket = [...(nextManual[globalFY][countryKey] || []), newExpense];
     nextManual[globalFY][countryKey] = nextBucket;
     updateState({ manualExpenses: nextManual });
-
-    try {
-      await syncBudgetDataToCloud({ ...state, manualExpenses: nextManual });
-    } catch (e) {
-      console.error('Error syncing budget data (add expense):', e);
-    }
   };
 
-  const handleUpdateExpenseLabel = async (id: string, label: string) => {
+  const handleUpdateExpenseLabel = (id: string, label: string) => {
     if (isGlobalView || id.startsWith('auto-')) return;
     const countryKey = globalCountry as string;
     const next = (manualExpenses[globalFY][countryKey] || []).map(e => e.id === id ? { ...e, label } : e);
     const nextManualExpenses = { ...manualExpenses, [globalFY]: { ...(manualExpenses[globalFY] || {}), [countryKey]: next } };
     updateState({ manualExpenses: nextManualExpenses });
-
-    try {
-      await syncBudgetDataToCloud({ ...state, manualExpenses: nextManualExpenses });
-    } catch (e) {
-      console.error('Error syncing budget data (update expense label):', e);
-    }
   };
 
-  const handleDeleteExpenseRow = async (id: string) => {
+  const handleDeleteExpenseRow = (id: string) => {
     if (isGlobalView || id.startsWith('auto-')) return;
     const countryKey = globalCountry as string;
     const next = (manualExpenses[globalFY][countryKey] || []).filter(e => e.id !== id);
     const nextManualExpenses = { ...manualExpenses, [globalFY]: { ...(manualExpenses[globalFY] || {}), [countryKey]: next } };
     updateState({ manualExpenses: nextManualExpenses });
-
-    try {
-      await syncBudgetDataToCloud({ ...state, manualExpenses: nextManualExpenses });
-    } catch (e) {
-      console.error('Error syncing budget data (delete expense row):', e);
-    }
   };
 
-  const handleUpdateBudgetVal = async (id: string, value: string) => {
+  const handleUpdateBudgetVal = (id: string, value: string) => {
     if (isGlobalView) return;
     const countryKey = globalCountry as string;
     const cleanValue = value.replace(/[^\d-]/g, '');
@@ -668,12 +706,6 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
     const nextValuesBucket = { ...(budgetValues[globalFY]?.[countryKey] || {}), [id]: amount };
     const nextBudgetValues = { ...budgetValues, [globalFY]: { ...(budgetValues[globalFY] || {}), [countryKey]: nextValuesBucket } };
     updateState({ budgetValues: nextBudgetValues });
-
-    try {
-      await syncBudgetDataToCloud({ ...state, budgetValues: nextBudgetValues });
-    } catch (e) {
-      console.error('Error syncing budget values:', e);
-    }
   };
 
   const calculateCategoryTotals = (catId: string) => {
@@ -794,6 +826,15 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
 
   return (
     <div className="space-y-6 max-w-[1600px] mx-auto">
+      {hasMultipleTabs && (
+        <div className="bg-amber-50 border border-amber-300 text-amber-900 px-4 py-3 rounded-xl flex items-center gap-3 shadow-sm">
+          <AlertTriangle className="text-amber-600 shrink-0" size={20} />
+          <p className="text-xs font-semibold">
+            Suivi Budgétaire semble être ouvert dans un autre onglet ou une autre fenêtre sur ce navigateur. Pour éviter de perdre des modifications, évitez de saisir des données dans plusieurs onglets en même temps.
+          </p>
+        </div>
+      )}
+
       <div className="flex bg-white p-1 rounded-xl border shadow-sm w-full md:w-fit overflow-x-auto no-scrollbar">
         <button onClick={() => setActiveTab('billing')} className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-xs font-black transition-all shrink-0 ${activeTab === 'billing' ? 'bg-navy text-yellow-accent shadow-md' : 'text-gray-400 hover:text-navy'}`}><ReceiptEuro size={16} /> FACTURATION</button>
         <button onClick={() => setActiveTab('expenses')} className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-xs font-black transition-all shrink-0 ${activeTab === 'expenses' ? 'bg-navy text-yellow-accent shadow-md' : 'text-gray-400 hover:text-navy'}`}><Wallet size={16} /> DÉPENSES</button>

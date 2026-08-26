@@ -640,16 +640,6 @@ export const syncStateToCloud = async (state: AppState) => {
       }
     });
 
-    // Budget
-    if (state.globalFY) {
-      await supabase.from('budget_data').upsert({
-        fy: state.globalFY,
-        manual_expenses: state.manualExpenses[state.globalFY] || {},
-        budget_families: state.budgetFamilies[state.globalFY] || {},
-        budget_values: state.budgetValues[state.globalFY] || {}
-      });
-    }
-
     // Collaborators
     if (state.collaborators.length > 0) {
       const collaboratorsData = state.collaborators.slice(0, 100).map(c => mapCollaboratorToSupabase(c));
