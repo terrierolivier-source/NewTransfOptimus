@@ -259,13 +259,14 @@ const App: React.FC = () => {
 
   // Re-trigger load when authorization is granted
   useEffect(() => {
-    if (isAuthorized && session && !isInitialLoadComplete && !isCloudLoading) {
+    if (isAuthorized && session && !isInitialLoadComplete && !isCloudLoadingRef.current) {
       console.log("[Init] Access granted, triggering cloud load.");
       // We don't have access to the inner function triggerInitialLoad here easily if we want to keep things clean.
       // Easiest is to force a re-render or use a signal.
       // But actually handleSession would have skipped it because isAuthorized was false.
       // So we can just try to load here.
       const load = async () => {
+        isCloudLoadingRef.current = true;
         setIsCloudLoading(true);
         try {
           const cloudData = await loadStateFromCloud();
@@ -280,6 +281,7 @@ const App: React.FC = () => {
         } catch(e) {
           console.error("Load after access failed", e);
         } finally {
+          isCloudLoadingRef.current = false;
           setIsCloudLoading(false);
         }
       };
