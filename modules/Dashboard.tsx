@@ -732,7 +732,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
       return !(hasInternalStaffing || hasFreelanceStaffing || hasSubcontractorStaffing);
     });
 
-    const lateTimesheets = eligibleCollaborators.filter(collab => {
+    const lateTimesheets = eligibleCollaborators.map(collab => {
       const fyYear = parseInt(globalFY.replace('FY', ''));
       const startRange = startOfDay(new Date(fyYear, 1, 1)); 
       const endRange = startOfDay(addDays(today, -7)); 
@@ -752,22 +752,37 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
       const effectiveStart = isAfter(collabJoining, startRange) ? startOfDay(collabJoining) : startRange;
       const effectiveEnd = isBefore(collabLeaving, endRange) ? endOfDay(collabLeaving) : endRange;
       
-      if (isAfter(effectiveStart, effectiveEnd)) return false;
+      if (isAfter(effectiveStart, effectiveEnd)) return null;
       
       const bDays = getBusinessDays(effectiveStart, effectiveEnd, holidays, collab.country);
-      if (bDays.length === 0) return false;
+      if (bDays.length === 0) return null;
       
       const collabTS = timesheets.filter(t => (t.collaboratorId === collab.id || t.userId === collab.id) && t.status === TimesheetStatus.VALIDE);
       
-      return bDays.some(day => {
+      const missingDays: { date: Date; dateStr: string; label: string }[] = [];
+      bDays.forEach(day => {
         const monday = format(startOfWeek(day, { weekStartsOn: 1 }), 'yyyy-MM-dd');
         const dayIdx = (day.getDay() + 6) % 7;
         const dayTotal = collabTS
           .filter(t => t.weekStart === monday && t.dayIndex === dayIdx)
           .reduce((acc, t) => acc + t.percentage, 0);
-        return Math.min(100, dayTotal) < 100;
+        if (Math.min(100, dayTotal) < 100) {
+          missingDays.push({
+            date: day,
+            dateStr: format(day, 'yyyy-MM-dd'),
+            label: format(day, 'dd/MM')
+          });
+        }
       });
-    });
+
+      if (missingDays.length === 0) return null;
+
+      return {
+        ...collab,
+        missingDaysCount: missingDays.length,
+        missingDates: missingDays
+      };
+    }).filter(Boolean);
     
     const lowMoodConsultants: any[] = [];
     const processedUsers = new Set<string>();
@@ -1556,7 +1571,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
             }[key as keyof typeof alerts];
             return (
               <div key={key} className="relative group">
-                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-4 w-80 bg-navy/95 backdrop-blur-md rounded-2xl shadow-2xl border border-white/15 p-5 hidden group-hover:block z-[60] animate-in fade-in zoom-in duration-200 pointer-events-none transition-all">
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-4 w-96 max-w-[90vw] bg-navy/95 backdrop-blur-md rounded-2xl shadow-2xl border border-white/15 p-5 hidden group-hover:block z-[60] animate-in fade-in zoom-in duration-200 pointer-events-none transition-all">
                   <div className="text-xs font-black text-yellow-accent uppercase mb-4 border-b border-white/10 pb-2 flex justify-between items-center tracking-widest">
                     <span>Détails Alertes</span>
                     <span className="bg-white/15 px-2.5 py-0.5 rounded-lg text-white font-mono text-[10px]">{list.length}</span>
@@ -1583,6 +1598,26 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
                               {emoji && <span className="text-[18px] leading-none inline-block select-none transform hover:scale-110 transition-transform">{emoji}</span>}
                               <span>{formatMoodDate(item.updatedAt)}</span>
                             </span>
+                          );
+                          isLine2Bold = false;
+                        } else if (key === 'lateTimesheets') {
+                          line1 = `${item.firstName} ${item.lastName}`;
+                          const dates = (item.missingDates || []).map((d: any) => d.label);
+                          line2 = (
+                            <div className="mt-1 space-y-1">
+                              <span className="text-white/80 font-normal">
+                                {item.missingDaysCount || dates.length} jour{(item.missingDaysCount || dates.length) > 1 ? 's' : ''} non renseigné{(item.missingDaysCount || dates.length) > 1 ? 's' : ''}
+                              </span>
+                              {dates.length > 0 && (
+                                <div className="flex flex-wrap gap-1 pt-0.5 max-h-16 overflow-y-auto">
+                                  {dates.map((lbl: string, dIdx: number) => (
+                                    <span key={dIdx} className="inline-block px-1.5 py-0.5 bg-yellow-accent/20 border border-yellow-accent/40 text-yellow-accent text-[9px] font-bold rounded">
+                                      {lbl}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
                           );
                           isLine2Bold = false;
                         } else if (key === 'lowMargin') {
