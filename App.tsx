@@ -43,6 +43,7 @@ const App: React.FC = () => {
 
   // Refs for logic to avoid stale closures in effects
   const isInitialLoadCompleteRef = React.useRef(false);
+  const isCloudLoadingRef = React.useRef(false);
   const pendingChangesRef = React.useRef(0);
 
   // Sync refs with state
@@ -86,7 +87,8 @@ const App: React.FC = () => {
     };
 
     const triggerInitialLoad = async (currentSession: any) => {
-      if (isInitialLoadCompleteRef.current || isCloudLoading) return;
+      if (isInitialLoadCompleteRef.current || isCloudLoadingRef.current) return;
+      isCloudLoadingRef.current = true;
       
       setIsCloudLoading(true);
       try {
@@ -139,6 +141,7 @@ const App: React.FC = () => {
       } catch (err) {
         console.error("[Init] Data load error", err);
       } finally {
+        isCloudLoadingRef.current = false;
         setIsCloudLoading(false);
         setLoading(false);
       }
