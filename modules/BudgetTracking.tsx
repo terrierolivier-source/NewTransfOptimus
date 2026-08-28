@@ -854,7 +854,7 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
                 <tr className="text-[9px] uppercase font-black text-gray-400 border-b bg-white">
                   <th style={{ width: BILLING_COL1_WIDTH, minWidth: BILLING_COL1_WIDTH }} className="p-4 border-b border-r bg-white sticky left-0 z-[60] shadow-sm">Mission / Client</th>
                   <th style={{ width: BILLING_COL2_WIDTH, minWidth: BILLING_COL2_WIDTH, left: BILLING_COL1_WIDTH }} className="p-4 border-b border-r bg-white text-navy sticky z-[60] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">Total Mission</th>
-                  {MONTHS.map(m => <th key={m.id} className="p-4 border-b text-center min-w-[110px] bg-white">{m.label}</th>)}
+                  {MONTHS.map(m => <th key={m.id} className="p-4 border-b text-center min-w-[130px] bg-white">{m.label}</th>)}
                 </tr>
               </thead>
               <tbody className="divide-y">
@@ -887,30 +887,24 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
                       </div>
                     </td>
                     <td style={{ width: BILLING_COL2_WIDTH, minWidth: BILLING_COL2_WIDTH, left: BILLING_COL1_WIDTH }} className="py-2 px-4 border-r font-black text-navy text-[10px] text-right sticky z-30 bg-white group-even:bg-slate-50 group-hover:bg-slate-50 transition-colors shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
-                      <div className="flex flex-col items-end">
-                        <span className="border-b border-gray-100 pb-1 w-full text-right">{formatCurrency(row.totalMissionOverall)}</span>
-                        <div className="mt-1 flex flex-col items-end opacity-80">
-                          <span className="text-navy">{formatCurrency(row.totalFY)}</span>
-                          <span className="text-[7px] text-gray-400 font-black uppercase tracking-tighter mt-0.5 leading-none">FY</span>
-                        </div>
-                      </div>
+                      <span>{formatCurrency(row.totalFY)}</span>
                     </td>
                     {row.monthlyData.map((data, i) => (
-                      <td key={i} className={`py-1 px-2 text-center border-r relative group/cell ${data.isValidated ? 'bg-emerald-50/10' : data.amount !== 0 ? 'bg-red-500/5' : 'bg-transparent'}`}>
+                      <td key={i} className={`py-1 px-2 text-center border-r min-w-[130px] relative group/cell ${data.isValidated ? 'bg-emerald-50/10' : data.amount !== 0 ? 'bg-red-500/5' : 'bg-transparent'}`}>
                         <div className="flex items-center gap-1.5 justify-end px-1 h-full min-h-[32px] relative z-10">
                           {!isGlobalView && (
                             <button 
                               onClick={() => setActiveCommentCell({ type: 'billing', id: row.mission.id, monthId: MONTHS[i].id, currentComment: data.comment || '' })}
-                              className={`absolute top-0.5 left-0.5 p-1 rounded-md transition-all z-10 ${data.comment ? 'text-navy bg-yellow-accent shadow-md ring-1 ring-yellow-accent' : 'text-gray-400 opacity-20 group-hover/cell:opacity-100 hover:text-navy hover:bg-navy/10 hover:opacity-100'}`}
+                              className={`absolute top-1 left-1 p-0.5 rounded transition-all z-10 ${data.comment ? 'text-navy bg-yellow-accent shadow-xs ring-1 ring-yellow-accent' : 'text-gray-400 opacity-20 group-hover/cell:opacity-100 hover:text-navy hover:bg-navy/10 hover:opacity-100'}`}
                               title={data.comment || "Ajouter un commentaire"}
                             >
-                              <MessageSquare size={14} fill={data.comment ? "currentColor" : "none"} strokeWidth={data.comment ? 1.5 : 2.5} />
+                              <MessageSquare size={10} fill={data.comment ? "currentColor" : "none"} strokeWidth={data.comment ? 1.5 : 2.5} />
                             </button>
                           )}
                           <input 
                             type="text" 
                             disabled={isGlobalView} 
-                            className={`w-full bg-transparent text-right text-[10px] font-black focus:outline-none ${data.isValidated ? 'text-emerald-600' : data.amount === 0 ? 'text-gray-300' : data.amount < 0 ? 'text-emerald-500' : 'text-red-500'}`} 
+                            className={`w-full bg-transparent text-right pl-5 text-[10px] font-black focus:outline-none ${data.isValidated ? 'text-emerald-600' : data.amount === 0 ? 'text-gray-300' : data.amount < 0 ? 'text-emerald-500' : 'text-red-500'}`} 
                             value={data.amount === 0 ? '- €' : formatCurrency(data.amount)} 
                             onChange={(e) => handleUpdateAmount(row.mission.id, MONTHS[i].id, e.target.value)} 
                           />
@@ -936,7 +930,7 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
                     {billingRows.reduce((a, b) => a + b.totalFY, 0) === 0 ? <span className="text-white/40">- €</span> : formatCurrency(billingRows.reduce((a, b) => a + b.totalFY, 0))}
                   </td>
                   {monthlyBillingTotals.map((total, i) => (
-                    <td key={i} className="py-1.5 px-4 text-center border-r border-white/10 bg-navy min-w-[110px]">
+                    <td key={i} className="py-1.5 px-4 text-center border-r border-white/10 bg-navy min-w-[130px]">
                       {total === 0 ? <span className="text-white/40">- €</span> : formatCurrency(total)}
                     </td>
                   ))}
