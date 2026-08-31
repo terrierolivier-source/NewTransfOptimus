@@ -7,8 +7,8 @@ interface AccessGateProps {
 
 // CETTE PROTECTION EST UNE BARRIÈRE SIMPLE CONTRE L'ACCÈS ACCIDENTEL.
 // CE N'EST PAS UNE SÉCURITÉ FORTE. POUR UNE VRAIE SÉCURITÉ, METTRE EN PLACE UNE AUTHENTIFICATION COMPLÈTE.
-export const APP_ACCESS_CODE = "OPTIMUS2026";
-export const APP_ACCESS_VERSION = "1.0.0";
+export const APP_ACCESS_CODE = "OPTIMUS092026";
+export const APP_ACCESS_VERSION = "1.1.0";
 
 const AccessGate: React.FC<AccessGateProps> = ({ onAuthorize }) => {
   const [code, setCode] = useState('');
