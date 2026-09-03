@@ -1636,9 +1636,9 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
                             <p className="text-xs font-black text-white uppercase truncate tracking-tight">
                               {line1}
                             </p>
-                            <p className={`text-[10px] text-white uppercase truncate mt-1 ${isLine2Bold ? 'font-bold' : 'font-normal'}`}>
+                            <div className={`text-[10px] text-white uppercase mt-1 ${isLine2Bold ? 'font-bold' : 'font-normal'}`}>
                               {line2}
-                            </p>
+                            </div>
                           </div>
                         );
                       })
