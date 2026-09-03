@@ -35,6 +35,9 @@ import {
   AlertTriangle,
   Target,
   TrendingUp,
+  TrendingDown,
+  ChevronDown,
+  ChevronRight,
   FileSearch,
   CheckCircle2,
   Clock,
@@ -182,6 +185,10 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
   };
 
   const { missions, globalCountry, globalFY, manualExpenses, budgetFamilies, budgetValues, users } = state;
+
+  // Affichage du détail des lignes de dépenses dans l'onglet Budget et P&L (masqué par défaut pour rester au cran au-dessus)
+  const [showExpenseLinesInBudget, setShowExpenseLinesInBudget] = useState<boolean>(false);
+  const [showDetailsInPL, setShowDetailsInPL] = useState<boolean>(false);
 
   // Référence persistante au state pour la synchronisation débouncée
   const stateRef = useRef(state);
@@ -1371,9 +1378,24 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
         <div className="bg-white rounded-2xl border shadow-sm overflow-hidden flex flex-col h-[75vh]">
           <div className="p-4 bg-navy border-b flex items-center justify-between shrink-0">
              <div className="flex items-center gap-3"><Calculator size={20} className="text-yellow-accent" /><h3 className="font-black text-xs text-white uppercase tracking-widest leading-none">Analyse P&L {globalCountry} ({globalFY})</h3></div>
-             {!isGlobalView && (
-               <button onClick={() => setIsBudgetEditMode(!isBudgetEditMode)} className={`flex items-center gap-2 px-4 py-2 rounded-full border text-[10px] font-black uppercase transition-all shadow-sm ${isBudgetEditMode ? 'bg-emerald-500 border-emerald-400 text-white' : 'bg-white/10 border-white/10 text-white'}`}>{isBudgetEditMode ? <CheckCircle size={14} /> : <PencilLine size={14} />}{isBudgetEditMode ? 'Quitter Edition Budget' : 'Modifier Objectifs'}</button>
-             )}
+             <div className="flex items-center gap-2">
+               <button
+                 type="button"
+                 onClick={() => setShowDetailsInPL(!showDetailsInPL)}
+                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[10px] font-black uppercase transition-all shadow-sm ${
+                   showDetailsInPL 
+                     ? 'bg-yellow-accent text-navy border-yellow-accent' 
+                     : 'bg-white/10 border-white/20 text-white hover:bg-white/20'
+                 }`}
+                 title="Afficher ou masquer les lignes détails (familles de dépenses)"
+               >
+                 <Layers size={13} />
+                 <span>{showDetailsInPL ? 'Détails : Affichés' : 'Détails : Masqués'}</span>
+               </button>
+               {!isGlobalView && (
+                 <button onClick={() => setIsBudgetEditMode(!isBudgetEditMode)} className={`flex items-center gap-2 px-4 py-2 rounded-full border text-[10px] font-black uppercase transition-all shadow-sm ${isBudgetEditMode ? 'bg-emerald-500 border-emerald-400 text-white' : 'bg-white/10 border-white/10 text-white'}`}>{isBudgetEditMode ? <CheckCircle size={14} /> : <PencilLine size={14} />}{isBudgetEditMode ? 'Quitter Edition Budget' : 'Modifier Objectifs'}</button>
+               )}
+             </div>
           </div>
           <div className="flex-1 overflow-auto relative">
             {!plData ? (
@@ -1461,7 +1483,7 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
                                   </td>
                                   <td className="p-4 border-l text-center font-black text-[10px] bg-gray-100">{formatCurrency(catAgg.fy - (cat.budget as number))}</td>
                               </tr>
-                              {matchingFamilies.map((fam: any) => {
+                              {showDetailsInPL && matchingFamilies.map((fam: any) => {
                                   const famAgg = plData.getAggregates(fam.monthly);
                                   return (
                                     <tr key={fam.id} className="bg-white/50 hover:bg-gray-50/50">
@@ -1536,144 +1558,475 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
       )}
 
       {activeTab === 'budget' && (
-        <div className="bg-white rounded-2xl border shadow-sm overflow-hidden flex flex-col h-[75vh] w-1/2 mx-auto">
+        <div className="bg-white rounded-2xl border shadow-sm overflow-hidden flex flex-col h-[78vh] w-full">
           <div className="p-4 bg-gray-50 border-b flex items-center justify-between shrink-0">
-             <div className="flex items-center gap-3"><Goal size={20} className="text-navy" /><h3 className="font-black text-xs text-navy uppercase tracking-widest leading-none">Définition Objectifs Budget {globalCountry} ({globalFY})</h3></div>
-             {isGlobalView ? (
-               <span className="bg-amber-100 text-amber-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider">Lecture Seule (Vue Globale)</span>
-             ) : (
-               <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider">Mode Édition Activé</span>
-             )}
+             <div className="flex items-center gap-3">
+               <Goal size={20} className="text-navy" />
+               <div>
+                 <h3 className="font-black text-xs text-navy uppercase tracking-widest leading-none">
+                   Objectifs Budget & Reforecasts (T1, T2, T3, T4 Miroir P&L) — {globalCountry} ({globalFY})
+                 </h3>
+                 <span className="text-[10px] text-gray-500 font-medium">
+                   Suivi pluriannuel, révisions trimestrielles et consolidation automatique
+                 </span>
+               </div>
+             </div>
+             <div className="flex items-center gap-3">
+               <button
+                 type="button"
+                 onClick={() => setShowExpenseLinesInBudget(!showExpenseLinesInBudget)}
+                 className={`text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-lg border transition-all flex items-center gap-1.5 shadow-2xs ${
+                   showExpenseLinesInBudget 
+                     ? 'bg-navy text-white border-navy' 
+                     : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'
+                 }`}
+                 title="Afficher ou masquer les lignes détaillées de chaque dépense sous les familles"
+               >
+                 <Layers size={13} />
+                 <span>{showExpenseLinesInBudget ? 'Lignes de dépenses : Affichées' : 'Lignes de dépenses : Masquées'}</span>
+               </button>
+               {isGlobalView ? (
+                 <span className="bg-amber-100 text-amber-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider">Lecture Seule (Vue Globale)</span>
+               ) : (
+                 <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider">Mode Édition Activé</span>
+               )}
+             </div>
           </div>
           <div className="flex-1 overflow-auto relative">
-            {!plData ? null : (
-              <table className="w-full text-left border-separate border-spacing-0">
-                <thead className="sticky top-0 z-30 shadow-sm">
-                  <tr className="text-[10px] uppercase font-black text-gray-500 bg-gray-100 border-b">
-                    <th className="p-3 border-b border-r bg-gray-100 sticky left-0 z-40 w-[320px] shadow-sm tracking-widest whitespace-nowrap">Poste / Nature</th>
-                    <th className="p-3 border-b border-l text-center bg-navy text-yellow-accent min-w-[150px] z-10 tracking-widest uppercase">Objectif Budget Global Annuel</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {(() => {
-                    const query = searchQueries.budget.trim().toLowerCase();
-                    const revenueMatches = !query || "chiffre d'affaires (vendu)".includes(query) || "ca".includes(query);
-                    const ebitMatches = !query || "ebit".includes(query) || "ebit fy budgeté".includes(query);
-                    const marginMatches = !query || "marge ebit (%)".includes(query) || "marge".includes(query);
+            {!plData ? null : (() => {
+              const query = searchQueries.budget.trim().toLowerCase();
+              const revenueMatches = !query || "chiffre d'affaires (vendu)".includes(query) || "ca".includes(query);
+              const ebitMatches = !query || "ebit".includes(query) || "ebit fy budgeté".includes(query);
+              const marginMatches = !query || "marge ebit (%)".includes(query) || "marge".includes(query);
 
-                    const hasExpensesMatches = (plData.expensesByCategory || []).some((cat: any) => {
-                      const catMatch = cat.label.toLowerCase().includes(query);
-                      const famMatch = (cat.families || []).some((fam: any) => fam.label.toLowerCase().includes(query));
-                      return catMatch || famMatch;
-                    });
+              const hasExpensesMatches = (plData.expensesByCategory || []).some((cat: any) => {
+                const catMatch = cat.label.toLowerCase().includes(query);
+                const famMatch = (cat.families || []).some((fam: any) => fam.label.toLowerCase().includes(query));
+                return catMatch || famMatch;
+              });
 
-                    if (query && !revenueMatches && !ebitMatches && !marginMatches && !hasExpensesMatches) {
-                      return (
-                        <tr>
-                          <td colSpan={2} className="p-8 text-center text-gray-400 font-bold text-xs uppercase">
-                            Aucun poste de budget ne correspond à la recherche "{searchQueries.budget}"
-                          </td>
-                        </tr>
-                      );
-                    }
+              if (query && !revenueMatches && !ebitMatches && !marginMatches && !hasExpensesMatches) {
+                return (
+                  <div className="p-12 text-center text-gray-400 font-bold text-xs uppercase">
+                    Aucun poste de budget ne correspond à la recherche "{searchQueries.budget}"
+                  </div>
+                );
+              }
 
-                    return (
-                      <>
-                        {revenueMatches && (
-                          <tr className="bg-navy/5 group">
-                            <td className="p-2.5 border-r sticky left-0 z-10 bg-gray-50 font-black text-navy text-[12px] shadow-sm uppercase w-[320px] whitespace-nowrap overflow-hidden text-ellipsis">CHIFFRE D'AFFAIRES (VENDU)</td>
-                            <td className="p-2.5 border-l text-center font-black text-[12px] bg-yellow-accent/5">
-                              {isGlobalView ? formatCurrency(plData.totalBudgetRevenue) : (
-                                <input 
-                                  type="text" 
-                                  className="w-full max-w-[180px] mx-auto border-2 border-yellow-accent/20 rounded-lg px-3 py-1 text-center text-[12px] font-black focus:border-yellow-accent outline-none shadow-sm" 
-                                  value={currentBudgetValues['revenue_total'] ? formatCurrency(currentBudgetValues['revenue_total']) : '0 €'} 
-                                  onChange={(e) => handleUpdateBudgetVal('revenue_total', e.target.value)} 
-                                  placeholder="0 €" 
-                                />
+              // Définition des 5 colonnes
+              const columns = [
+                { id: 'initial', label: 'Budget Initial', subLabel: 'Cible Annuelle FY', prefix: '', isEditable: true, isMirror: false, headerBg: 'bg-navy text-yellow-accent', cellBg: 'bg-yellow-accent/5' },
+                { id: 'rf1', label: 'Reforecast 1', subLabel: 'Trimestre 1 (Q1)', prefix: 'rf1_', isEditable: true, isMirror: false, headerBg: 'bg-slate-800 text-white', cellBg: 'bg-slate-50/70' },
+                { id: 'rf2', label: 'Reforecast 2', subLabel: 'Trimestre 2 (Q2)', prefix: 'rf2_', isEditable: true, isMirror: false, headerBg: 'bg-slate-800 text-white', cellBg: 'bg-slate-50/70' },
+                { id: 'rf3', label: 'Reforecast 3', subLabel: 'Trimestre 3 (Q3)', prefix: 'rf3_', isEditable: true, isMirror: false, headerBg: 'bg-slate-800 text-white', cellBg: 'bg-slate-50/70' },
+                { id: 't4', label: 'Trimestre 4', subLabel: 'Miroir P&L Réel (FY)', prefix: 't4_', isEditable: false, isMirror: true, headerBg: 'bg-navy text-emerald-300', cellBg: 'bg-emerald-500/5' },
+              ];
+
+              // Helper d'évaluation du montant d'une dépense individuelle
+              const getExpVal = (exp: ManualExpense, col: typeof columns[0]) => {
+                if (col.isMirror) {
+                  return (Object.values(exp.monthlyAmounts || {}) as number[]).reduce((a, b) => a + (b || 0), 0);
+                }
+                return currentBudgetValues[col.prefix + exp.id] || 0;
+              };
+
+              // Helper d'évaluation du montant d'une famille
+              const getFamVal = (fam: any, col: typeof columns[0]) => {
+                if (col.isMirror) {
+                  return plData.getAggregates(fam.monthly).fy || 0;
+                }
+                const direct = currentBudgetValues[col.prefix + fam.id];
+                if (direct !== undefined && direct !== 0) return direct;
+                // Sinon somme des dépenses individuelles sous cette famille
+                const expensesForFam = currentManualExpenses.filter(e => e.familyId === fam.id);
+                return expensesForFam.reduce((acc, exp) => acc + (currentBudgetValues[col.prefix + exp.id] || 0), 0);
+              };
+
+              // Helper d'évaluation du montant d'une catégorie
+              const getCatVal = (cat: any, col: typeof columns[0]) => {
+                if (col.isMirror) {
+                  return plData.getAggregates(cat.monthly).fy || 0;
+                }
+                const direct = currentBudgetValues[col.prefix + cat.id];
+                if (direct !== undefined && direct !== 0) return direct;
+                // Sinon somme des familles de cette catégorie
+                return (cat.families || []).reduce((acc: number, fam: any) => acc + getFamVal(fam, col), 0);
+              };
+
+              // Chiffre d'affaires par colonne
+              const getRevenueVal = (col: typeof columns[0]) => {
+                if (col.isMirror) {
+                  return plData.getAggregates(plData.totalRevenueMonthly).fy || 0;
+                }
+                return currentBudgetValues[col.prefix + 'revenue_total'] || 0;
+              };
+
+              // Total Dépenses par colonne
+              const getTotalExpensesVal = (col: typeof columns[0]) => {
+                if (col.isMirror) {
+                  return plData.getAggregates(plData.totalExpensesMonthly).fy || 0;
+                }
+                return (plData.expensesByCategory || []).reduce((acc: number, cat: any) => acc + getCatVal(cat, col), 0);
+              };
+
+              // EBIT par colonne
+              const getEbitVal = (col: typeof columns[0]) => {
+                return getRevenueVal(col) - getTotalExpensesVal(col);
+              };
+
+              // Marge EBIT (%) par colonne
+              const getMarginVal = (col: typeof columns[0]) => {
+                const rev = getRevenueVal(col);
+                if (!rev || rev === 0) return 0;
+                return (getEbitVal(col) / rev) * 100;
+              };
+
+              // Rendu des badges d'écart (variation vs Budget Initial)
+              const renderVariance = (val: number, baseVal: number, isExpense: boolean) => {
+                if (baseVal === 0 && val === 0) return null;
+                const diff = val - baseVal;
+                if (Math.abs(diff) < 0.01) {
+                  return <span className="text-[9px] font-bold text-gray-400 mt-0.5 block text-center">Δ 0 €</span>;
+                }
+                const pct = baseVal !== 0 ? (diff / Math.abs(baseVal)) * 100 : null;
+                const isFavorable = isExpense ? diff < 0 : diff > 0;
+                const sign = diff > 0 ? '+' : '';
+                const pctSign = pct !== null && pct > 0 ? '+' : '';
+
+                return (
+                  <div 
+                    className={`text-[8.5px] font-black px-1.5 py-0.5 rounded mt-0.5 inline-flex items-center gap-1 leading-tight tracking-tight border shadow-2xs ${
+                      isFavorable 
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
+                        : 'bg-red-50 text-red-700 border-red-200'
+                    }`}
+                    title={`Écart vs Budget initial : ${sign}${formatCurrency(diff)}${pct !== null ? ` (${pctSign}${pct.toFixed(1)}%)` : ''}`}
+                  >
+                    <span>{isFavorable ? '▲' : '▼'} {sign}{formatCurrency(diff)}</span>
+                    {pct !== null && <span className="text-[7.5px] opacity-80 font-normal">({pctSign}{pct.toFixed(1)}%)</span>}
+                  </div>
+                );
+              };
+
+              // Rendu des écarts de marge
+              const renderMarginVariance = (pctVal: number, basePctVal: number) => {
+                if (basePctVal === 0 && pctVal === 0) return null;
+                const diff = pctVal - basePctVal;
+                if (Math.abs(diff) < 0.05) {
+                  return <span className="text-[9px] font-bold text-gray-400 mt-0.5 block text-center">Δ 0.0 pt</span>;
+                }
+                const isFavorable = diff > 0;
+                const sign = diff > 0 ? '+' : '';
+                return (
+                  <div 
+                    className={`text-[8.5px] font-black px-1.5 py-0.5 rounded mt-0.5 inline-flex items-center gap-1 leading-tight tracking-tight border shadow-2xs ${
+                      isFavorable 
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
+                        : 'bg-red-50 text-red-700 border-red-200'
+                    }`}
+                  >
+                    <span>{isFavorable ? '▲' : '▼'} {sign}{diff.toFixed(1)} pts</span>
+                  </div>
+                );
+              };
+
+              const initialCol = columns[0];
+              const baseRevenue = getRevenueVal(initialCol);
+              const baseEbit = getEbitVal(initialCol);
+              const baseMargin = getMarginVal(initialCol);
+
+              return (
+                <table className="w-full text-left border-separate border-spacing-0">
+                  <thead className="sticky top-0 z-30 shadow-sm">
+                    <tr className="text-[10px] uppercase font-black border-b text-gray-500 bg-gray-100">
+                      <th className="p-3 border-b border-r bg-gray-100 sticky left-0 z-40 min-w-[320px] shadow-sm tracking-wider whitespace-nowrap">
+                        Poste / Nature
+                      </th>
+                      {columns.map(col => (
+                        <th key={col.id} className={`p-3 border-b border-r text-center ${col.headerBg} min-w-[175px] z-10 tracking-wider`}>
+                          <div className="font-black text-[11px]">{col.label}</div>
+                          <div className="text-[8.5px] font-normal opacity-85 mt-0.5 flex items-center justify-center gap-1">
+                            <span>{col.subLabel}</span>
+                            {col.isMirror && (
+                              <span className="bg-emerald-400/20 text-emerald-300 border border-emerald-400/40 text-[7.5px] font-black px-1 rounded">
+                                P&L
+                              </span>
+                            )}
+                          </div>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y text-[11px]">
+                    {/* LIGNE CHIFFRE D'AFFAIRES */}
+                    {revenueMatches && (
+                      <tr className="bg-navy/5 group hover:bg-navy/10 transition-colors">
+                        <td className="p-2.5 border-r sticky left-0 z-10 bg-gray-50 font-black text-navy text-[12px] shadow-sm uppercase w-[320px] whitespace-nowrap overflow-hidden text-ellipsis">
+                          CHIFFRE D'AFFAIRES (VENDU)
+                        </td>
+                        {columns.map(col => {
+                          const val = getRevenueVal(col);
+                          const rawVal = currentBudgetValues[col.prefix + 'revenue_total'];
+                          return (
+                            <td key={col.id} className={`p-2.5 border-r text-center ${col.cellBg}`}>
+                              {col.isMirror || isGlobalView ? (
+                                <div className="flex flex-col items-center justify-center">
+                                  <span className="font-black text-[12px] text-navy">
+                                    {formatCurrency(val)}
+                                  </span>
+                                  {col.id !== 'initial' && renderVariance(val, baseRevenue, false)}
+                                </div>
+                              ) : (
+                                <div className="flex flex-col items-center justify-center">
+                                  <input 
+                                    type="text" 
+                                    className="w-full max-w-[145px] mx-auto border-2 border-yellow-accent/40 rounded-lg px-2 py-0.5 text-center text-[12px] font-black focus:border-yellow-accent outline-none shadow-2xs bg-white" 
+                                    value={rawVal ? formatCurrency(rawVal) : ''} 
+                                    onChange={(e) => handleUpdateBudgetVal(col.prefix + 'revenue_total', e.target.value)} 
+                                    placeholder="0 €" 
+                                  />
+                                  {col.id !== 'initial' && renderVariance(val, baseRevenue, false)}
+                                </div>
                               )}
                             </td>
-                          </tr>
-                        )}
-
-                        {(plData.expensesByCategory || []).map((cat: any) => {
-                          const catMatches = !query || cat.label.toLowerCase().includes(query);
-                          const matchingFamilies = (cat.families || []).filter((fam: any) => {
-                            if (!query || catMatches) return true;
-                            return fam.label.toLowerCase().includes(query);
-                          });
-
-                          if (query && !catMatches && matchingFamilies.length === 0) {
-                            return null;
-                          }
-
-                          const catBudget = currentBudgetValues[cat.id] || 0;
-                          return (
-                            <React.Fragment key={cat.id}>
-                              <tr className="bg-gray-100 group">
-                                  <td className="p-2.5 border-r sticky left-0 z-10 bg-gray-100 font-black text-gray-700 text-[11px] uppercase shadow-sm w-[320px] flex items-center gap-3 whitespace-nowrap overflow-hidden text-ellipsis">
-                                    <cat.icon size={18} className="text-navy" /> {cat.label}
-                                  </td>
-                                  <td className="p-2.5 border-l text-center font-black text-[11px] bg-gray-100/50">
-                                    {isGlobalView ? formatCurrency(catBudget) : (
-                                      <input 
-                                        type="text" 
-                                        className="w-full max-w-[180px] mx-auto border border-gray-300 rounded-lg px-3 py-0.5 text-center text-[11px] font-black focus:border-navy outline-none" 
-                                        value={currentBudgetValues[cat.id] ? formatCurrency(catBudget) : '0 €'} 
-                                        onChange={(e) => handleUpdateBudgetVal(cat.id, e.target.value)} 
-                                        placeholder="0 €" 
-                                      />
-                                    )}
-                                  </td>
-                              </tr>
-                              {matchingFamilies.map((fam: any) => {
-                                  const famBudget = currentBudgetValues[fam.id] || 0;
-                                  return (
-                                    <tr key={fam.id} className="bg-white/50 hover:bg-gray-50/50">
-                                      <td className="p-1.5 pl-10 border-r sticky left-0 z-10 bg-white font-black text-gray-500 text-[10px] uppercase shadow-sm w-[320px] whitespace-nowrap overflow-hidden text-ellipsis">
-                                        {fam.label}
-                                      </td>
-                                      <td className="p-1.5 border-l text-center font-black text-[10px] bg-white">
-                                        {isGlobalView ? formatCurrency(famBudget) : (
-                                          <input 
-                                            type="text" 
-                                            className="w-full max-w-[150px] mx-auto border border-gray-200 rounded px-2 py-0.5 text-center text-[10px] font-bold" 
-                                            value={currentBudgetValues[fam.id] ? formatCurrency(famBudget) : '0 €'} 
-                                            onChange={(e) => handleUpdateBudgetVal(fam.id, e.target.value)} 
-                                            placeholder="0 €" 
-                                          />
-                                        )}
-                                      </td>
-                                    </tr>
-                                  );
-                              })}
-                            </React.Fragment>
                           );
                         })}
+                      </tr>
+                    )}
 
-                        {ebitMatches && (
-                          <tr className="bg-navy text-white group">
-                            <td className="p-4 border-r sticky left-0 z-10 bg-navy font-black text-[13px] uppercase shadow-[4px_0_10px_-2px_rgba(0,0,0,0.5)] w-[320px] tracking-widest whitespace-nowrap overflow-hidden text-ellipsis"><Zap size={20} className="inline mr-3 text-yellow-accent" /> EBIT FY BUDGETÉ</td>
-                            <td className="p-4 border-l text-center font-black text-[13px] bg-navy text-yellow-accent">{formatCurrency(plData.totalBudgetEbit)}</td>
+                    {/* DÉPENSES PAR CATÉGORIES & FAMILLES & LIGNES */}
+                    {(plData.expensesByCategory || []).map((cat: any) => {
+                      const catMatches = !query || cat.label.toLowerCase().includes(query);
+                      const matchingFamilies = (cat.families || []).filter((fam: any) => {
+                        if (!query || catMatches) return true;
+                        return fam.label.toLowerCase().includes(query);
+                      });
+
+                      if (query && !catMatches && matchingFamilies.length === 0) {
+                        return null;
+                      }
+
+                      const baseCatVal = getCatVal(cat, initialCol);
+
+                      return (
+                        <React.Fragment key={cat.id}>
+                          {/* Ligne Catégorie */}
+                          <tr className="bg-gray-100/90 group font-bold">
+                            <td className="p-2 border-r sticky left-0 z-10 bg-gray-100 font-black text-gray-800 text-[11px] uppercase shadow-sm w-[320px] flex items-center gap-2.5 whitespace-nowrap overflow-hidden text-ellipsis">
+                              <cat.icon size={16} className="text-navy shrink-0" /> 
+                              <span>{cat.label}</span>
+                            </td>
+                            {columns.map(col => {
+                              const val = getCatVal(cat, col);
+                              const rawVal = currentBudgetValues[col.prefix + cat.id];
+                              return (
+                                <td key={col.id} className={`p-2 border-r text-center ${col.cellBg}`}>
+                                  {col.isMirror || isGlobalView ? (
+                                    <div className="flex flex-col items-center justify-center">
+                                      <span className="font-black text-[11px] text-gray-800">
+                                        {formatCurrency(val)}
+                                      </span>
+                                      {col.id !== 'initial' && renderVariance(val, baseCatVal, true)}
+                                    </div>
+                                  ) : (
+                                    <div className="flex flex-col items-center justify-center">
+                                      <input 
+                                        type="text" 
+                                        className="w-full max-w-[140px] mx-auto border border-gray-300 rounded-md px-2 py-0.5 text-center text-[11px] font-black focus:border-navy outline-none bg-white shadow-2xs" 
+                                        value={rawVal ? formatCurrency(rawVal) : ''} 
+                                        onChange={(e) => handleUpdateBudgetVal(col.prefix + cat.id, e.target.value)} 
+                                        placeholder={val > 0 ? `${formatCurrency(val)} (auto)` : '0 €'} 
+                                        title="Saisie directe catégorie (ou laissez vide pour sommer automatiquement les familles)"
+                                      />
+                                      {col.id !== 'initial' && renderVariance(val, baseCatVal, true)}
+                                    </div>
+                                  )}
+                                </td>
+                              );
+                            })}
                           </tr>
-                        )}
-                        
-                        {marginMatches && (
-                          <tr className="bg-gray-800 text-white group">
-                            <td className="p-3 border-r sticky left-0 z-10 bg-[#2d3b4d] font-black text-[11px] uppercase shadow-[4px_0_10px_-2px_rgba(0,0,0,0.3)] w-[320px] tracking-widest flex items-center gap-2"><Percent size={14} className="text-yellow-accent" /> MARGE EBIT (%) BUDGETÉE</td>
-                            <td className="p-3 border-l text-center font-black text-[11px] bg-gray-800 text-yellow-accent">{formatPercent(plData.ebitPercentAggregates.budget)}</td>
-                          </tr>
-                        )}
-                      </>
-                    );
-                  })()}
-                </tbody>
-              </table>
-            )}
+
+                          {/* Familles de la catégorie */}
+                          {matchingFamilies.map((fam: any) => {
+                            const baseFamVal = getFamVal(fam, initialCol);
+                            const expensesForFam = currentManualExpenses.filter(e => e.familyId === fam.id);
+                            const hasExpenses = expensesForFam.length > 0;
+
+                            return (
+                              <React.Fragment key={fam.id}>
+                                <tr className="bg-white hover:bg-gray-50/70 transition-colors">
+                                  <td className="p-1.5 pl-8 border-r sticky left-0 z-10 bg-white font-bold text-gray-600 text-[10.5px] uppercase shadow-sm w-[320px] whitespace-nowrap overflow-hidden text-ellipsis flex items-center justify-between">
+                                    <span className="truncate">{fam.label}</span>
+                                    {hasExpenses && showExpenseLinesInBudget && (
+                                      <span className="text-[9px] font-normal text-gray-400 bg-gray-100 px-1.5 py-0.2 rounded shrink-0">
+                                        {expensesForFam.length} ligne{expensesForFam.length > 1 ? 's' : ''}
+                                      </span>
+                                    )}
+                                  </td>
+                                  {columns.map(col => {
+                                    const val = getFamVal(fam, col);
+                                    const rawVal = currentBudgetValues[col.prefix + fam.id];
+                                    return (
+                                      <td key={col.id} className={`p-1.5 border-r text-center ${col.cellBg}`}>
+                                        {col.isMirror || isGlobalView ? (
+                                          <div className="flex flex-col items-center justify-center">
+                                            <span className="font-bold text-[10.5px] text-gray-700">
+                                              {formatCurrency(val)}
+                                            </span>
+                                            {col.id !== 'initial' && renderVariance(val, baseFamVal, true)}
+                                          </div>
+                                        ) : (
+                                          <div className="flex flex-col items-center justify-center">
+                                            <input 
+                                              type="text" 
+                                              className="w-full max-w-[130px] mx-auto border border-gray-200 rounded px-2 py-0.5 text-center text-[10px] font-bold focus:border-navy outline-none bg-white shadow-2xs" 
+                                              value={rawVal ? formatCurrency(rawVal) : ''} 
+                                              onChange={(e) => handleUpdateBudgetVal(col.prefix + fam.id, e.target.value)} 
+                                              placeholder={val > 0 ? `${formatCurrency(val)} (auto)` : '0 €'} 
+                                            />
+                                            {col.id !== 'initial' && renderVariance(val, baseFamVal, true)}
+                                          </div>
+                                        )}
+                                      </td>
+                                    );
+                                  })}
+                                </tr>
+
+                                {/* Lignes détaillées de dépenses sous chaque famille */}
+                                {showExpenseLinesInBudget && expensesForFam.map(exp => {
+                                  const baseExpVal = getExpVal(exp, initialCol);
+                                  return (
+                                    <tr key={exp.id} className="bg-slate-50/40 hover:bg-slate-100/50 text-gray-500 transition-colors">
+                                      <td className="p-1 pl-14 border-r sticky left-0 z-10 bg-slate-50/90 text-[9.5px] shadow-sm w-[320px] whitespace-nowrap overflow-hidden text-ellipsis flex items-center gap-1.5">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-navy/30 shrink-0" />
+                                        <span className="truncate font-medium text-gray-600">{exp.label}</span>
+                                      </td>
+                                      {columns.map(col => {
+                                        const val = getExpVal(exp, col);
+                                        const rawVal = currentBudgetValues[col.prefix + exp.id];
+                                        return (
+                                          <td key={col.id} className={`p-1 border-r text-center ${col.cellBg}`}>
+                                            {col.isMirror || isGlobalView ? (
+                                              <div className="flex flex-col items-center justify-center">
+                                                <span className="font-semibold text-[9.5px] text-gray-600">
+                                                  {formatCurrency(val)}
+                                                </span>
+                                                {col.id !== 'initial' && renderVariance(val, baseExpVal, true)}
+                                              </div>
+                                            ) : (
+                                              <div className="flex flex-col items-center justify-center">
+                                                <input 
+                                                  type="text" 
+                                                  className="w-full max-w-[115px] mx-auto border border-dashed border-gray-300 rounded px-1.5 py-0.2 text-center text-[9.5px] font-medium focus:border-navy outline-none bg-white" 
+                                                  value={rawVal ? formatCurrency(rawVal) : ''} 
+                                                  onChange={(e) => handleUpdateBudgetVal(col.prefix + exp.id, e.target.value)} 
+                                                  placeholder="0 €" 
+                                                />
+                                                {col.id !== 'initial' && renderVariance(val, baseExpVal, true)}
+                                              </div>
+                                            )}
+                                          </td>
+                                        );
+                                      })}
+                                    </tr>
+                                  );
+                                })}
+                              </React.Fragment>
+                            );
+                          })}
+                        </React.Fragment>
+                      );
+                    })}
+
+                    {/* TOTAL DÉPENSES */}
+                    <tr className="bg-gray-200/80 font-black text-gray-800">
+                      <td className="p-2.5 border-r sticky left-0 z-10 bg-gray-200 uppercase text-[11px] shadow-sm tracking-wider">
+                        TOTAL DÉPENSES FY
+                      </td>
+                      {columns.map(col => {
+                        const val = getTotalExpensesVal(col);
+                        const baseExpenses = getTotalExpensesVal(initialCol);
+                        return (
+                          <td key={col.id} className={`p-2.5 border-r text-center ${col.cellBg}`}>
+                            <div className="flex flex-col items-center justify-center">
+                              <span className="font-black text-[11px] text-gray-900">
+                                {formatCurrency(val)}
+                              </span>
+                              {col.id !== 'initial' && renderVariance(val, baseExpenses, true)}
+                            </div>
+                          </td>
+                        );
+                      })}
+                    </tr>
+
+                    {/* LIGNE EBIT FY */}
+                    {ebitMatches && (
+                      <tr className="bg-navy text-white group font-black">
+                        <td className="p-3 border-r sticky left-0 z-10 bg-navy font-black text-[12px] uppercase shadow-[4px_0_10px_-2px_rgba(0,0,0,0.5)] w-[320px] tracking-widest whitespace-nowrap overflow-hidden text-ellipsis">
+                          <Zap size={18} className="inline mr-2 text-yellow-accent" /> EBIT FY
+                        </td>
+                        {columns.map(col => {
+                          const val = getEbitVal(col);
+                          return (
+                            <td key={col.id} className="p-3 border-r text-center bg-navy text-yellow-accent">
+                              <div className="flex flex-col items-center justify-center">
+                                <span className="font-black text-[12px]">
+                                  {formatCurrency(val)}
+                                </span>
+                                {col.id !== 'initial' && renderVariance(val, baseEbit, false)}
+                              </div>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    )}
+                    
+                    {/* LIGNE MARGE EBIT (%) */}
+                    {marginMatches && (
+                      <tr className="bg-gray-800 text-white group font-black">
+                        <td className="p-2.5 border-r sticky left-0 z-10 bg-[#2d3b4d] font-black text-[11px] uppercase shadow-[4px_0_10px_-2px_rgba(0,0,0,0.3)] w-[320px] tracking-widest flex items-center gap-2">
+                          <Percent size={14} className="text-yellow-accent" /> MARGE EBIT (%)
+                        </td>
+                        {columns.map(col => {
+                          const val = getMarginVal(col);
+                          return (
+                            <td key={col.id} className="p-2.5 border-r text-center bg-gray-800 text-yellow-accent">
+                              <div className="flex flex-col items-center justify-center">
+                                <span className="font-black text-[11px]">
+                                  {formatPercent(val)}
+                                </span>
+                                {col.id !== 'initial' && renderMarginVariance(val, baseMargin)}
+                              </div>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              );
+            })()}
           </div>
-          <div className="p-5 bg-gray-50 border-t flex items-center justify-between shrink-0 text-[10px] font-black text-navy/40 uppercase tracking-widest">
-             <div className="flex items-center gap-4"><FileText size={16} /> <span>Budget : {globalFY} - {isGlobalView ? 'Consolidé' : globalCountry}</span></div>
-             <p className="max-w-md text-right leading-relaxed italic">Les cibles de budget sont définies par catégorie et famille pour une vision stratégique globale.</p>
+          <div className="p-4 bg-gray-50 border-t flex items-center justify-between shrink-0 text-[10px] font-bold text-navy/60 uppercase tracking-wider">
+             <div className="flex items-center gap-6">
+               <div className="flex items-center gap-2">
+                 <FileText size={15} />
+                 <span>Budget : {globalFY} — {isGlobalView ? 'Consolidé (Global)' : globalCountry}</span>
+               </div>
+               <div className="flex items-center gap-4 text-[9px] font-semibold text-gray-500">
+                 <span className="flex items-center gap-1">
+                   <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" /> 
+                   Écart favorable (Surcroît de CA/EBIT ou économie de dépenses)
+                 </span>
+                 <span className="flex items-center gap-1">
+                   <span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> 
+                   Écart défavorable (Sous-performance CA/EBIT ou dépassement budgétaire)
+                 </span>
+               </div>
+             </div>
+             <p className="max-w-md text-right leading-relaxed italic font-normal text-gray-500 lowercase first-letter:uppercase">
+               Le Trimestre 4 reflète automatiquement le réel du P&L (FY Total). Les reforecasts T1, T2 et T3 sont modifiables pour piloter les atterrissages.
+             </p>
           </div>
         </div>
       )}
