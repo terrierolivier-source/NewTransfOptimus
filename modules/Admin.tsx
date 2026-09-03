@@ -1430,7 +1430,7 @@ const Admin: React.FC<AdminProps> = ({ state, updateState }) => {
                       Points de Restauration
                     </h2>
                     <span className="px-2.5 py-0.5 bg-yellow-accent/20 border border-yellow-accent/40 text-yellow-accent rounded-full text-[10px] font-black uppercase tracking-wider">
-                      1 mois glissant (30 jours)
+                      Rotation 24h (2 sauvegardes)
                     </span>
                   </div>
                   <p className="text-xs text-white/70 mt-1 max-w-2xl leading-relaxed">
@@ -1497,8 +1497,8 @@ const Admin: React.FC<AdminProps> = ({ state, updateState }) => {
             ) : (
               <div className="divide-y divide-gray-100">
                 <div className="bg-gray-50/80 px-6 py-3 flex items-center justify-between text-[11px] font-bold text-gray-400 uppercase tracking-wider border-b">
-                  <span>{restorePoints.length} point(s) disponible(s) sur les 30 derniers jours</span>
-                  <span className="hidden md:inline text-[10px] text-gray-400">Purge automatique au-delà de 30 jours</span>
+                  <span>{restorePoints.length} point(s) de sauvegarde disponible(s)</span>
+                  <span className="hidden md:inline text-[10px] text-gray-400">Purge automatique : 2 dernières sauvegardes conservées</span>
                 </div>
                 {restorePoints.map((point) => {
                   const pDate = new Date(point.createdAt);

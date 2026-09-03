@@ -72,7 +72,8 @@ export interface ImportPreview {
 
 const LOCAL_STORAGE_RESTORE_POINTS_KEY = 'optimus_restore_points_v1';
 const SUPABASE_CONFIG_RESTORE_POINTS_KEY = 'system_restore_points';
-const RETENTION_PERIOD_MS = 30 * 24 * 60 * 60 * 1000; // 30 jours glissants (1 mois)
+export const MAX_AUTO_RESTORE_POINTS = 2; // Règle 24h : 2 sauvegardes automatiques conservées en backup
+export const MAX_MANUAL_RESTORE_POINTS = 2; // Maximum 2 points manuels d'urgence
 
 /**
  * Validates if a string is a valid UUID
@@ -354,10 +355,11 @@ export const importBackupJson = async (backup: FullBackup, mode: ImportMode): Pr
 };
 
 /**
- * GESTION DES POINTS DE RESTAURATION (1 MOIS GLISSANT = 30 JOURS)
+ * GESTION DES POINTS DE RESTAURATION (ROTATION 24H : 2 SAUVEGARDES BACKUP)
  * Sauvegarde bi-quotidienne automatique :
  * - Créneau 1 : 00h01 (Nuit)
  * - Créneau 2 : 12h00 (Midi)
+ * Règle de rétention : Conservation stricte des 2 dernières sauvegardes automatiques.
  */
 
 export interface RestorePointHeader {
@@ -379,10 +381,9 @@ export interface RestorePointHeader {
 }
 
 /**
- * Récupère la liste des points de restauration actifs (purgés au-delà de 30 jours)
+ * Récupère la liste des points de restauration actifs (2 sauvegardes automatiques en backup + max 2 manuelles)
  */
 export const getRestorePoints = async (): Promise<RestorePoint[]> => {
-  const cutoffTime = Date.now() - RETENTION_PERIOD_MS;
   let points: RestorePoint[] = [];
 
   // 1. Essayer depuis Supabase config
@@ -416,16 +417,21 @@ export const getRestorePoints = async (): Promise<RestorePoint[]> => {
     console.warn("Erreur lecture LocalStorage restore points", e);
   }
 
-  // 3. Purge des points plus anciens que 30 jours (1 mois glissant)
-  const validPoints = points.filter(p => {
-    const pointTime = new Date(p.createdAt).getTime();
-    return !isNaN(pointTime) && pointTime >= cutoffTime;
-  });
+  // 3. Application de la rotation 24h : conservation des 2 dernières sauvegardes automatiques
+  const autoPoints = points
+    .filter(p => p.type === 'auto')
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, MAX_AUTO_RESTORE_POINTS);
 
-  // Tri par date décroissante (le plus récent en premier)
-  validPoints.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const manualPoints = points
+    .filter(p => p.type !== 'auto')
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, MAX_MANUAL_RESTORE_POINTS);
 
-  // Si des points ont été purgés, on met à jour les stockages
+  const validPoints = [...autoPoints, ...manualPoints]
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  // Si des anciennes sauvegardes ont été purgées, on nettoie immédiatement Supabase et le stockage local
   if (validPoints.length !== points.length) {
     await persistRestorePointsList(validPoints);
   }
@@ -434,13 +440,24 @@ export const getRestorePoints = async (): Promise<RestorePoint[]> => {
 };
 
 /**
- * Sauvegarde la liste des points de restauration
+ * Sauvegarde la liste des points de restauration en appliquant la rotation 24h
  */
 const persistRestorePointsList = async (points: RestorePoint[]) => {
-  // Limiter la taille max à 65 points (soit > 30 jours * 2 sauvegardes par jour)
-  const trimmed = points.slice(0, 65);
+  // Limiter strictement aux 2 dernières sauvegardes auto et 2 manuelles max
+  const autoPoints = points
+    .filter(p => p.type === 'auto')
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, MAX_AUTO_RESTORE_POINTS);
 
-  // Sauvegarde Supabase en premier
+  const manualPoints = points
+    .filter(p => p.type !== 'auto')
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, MAX_MANUAL_RESTORE_POINTS);
+
+  const trimmed = [...autoPoints, ...manualPoints]
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  // Sauvegarde Supabase en premier (allègement immédiat de la base)
   try {
     await supabase.from('config').upsert({
       key: SUPABASE_CONFIG_RESTORE_POINTS_KEY,
@@ -455,9 +472,9 @@ const persistRestorePointsList = async (points: RestorePoint[]) => {
   try {
     localStorage.setItem(LOCAL_STORAGE_RESTORE_POINTS_KEY, JSON.stringify(trimmed));
   } catch (e) {
-    // Si quota dépassé, on stocke les 10 plus récents
+    // Si quota dépassé, on stocke uniquement le plus récent
     try {
-      localStorage.setItem(LOCAL_STORAGE_RESTORE_POINTS_KEY, JSON.stringify(trimmed.slice(0, 10)));
+      localStorage.setItem(LOCAL_STORAGE_RESTORE_POINTS_KEY, JSON.stringify(trimmed.slice(0, 1)));
     } catch (err) {
       console.warn("Erreur écriture LocalStorage restore points", err);
     }
