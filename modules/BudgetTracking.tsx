@@ -40,7 +40,8 @@ import {
   Clock,
   Link,
   Hash,
-  Trash
+  Trash,
+  Search
 } from 'lucide-react';
 import { getFiscalYear, generateId, getBusinessDays, calculateMonthlySmoothedRevenue, calculateTotalMissionRevenue, calculateSmoothedMissionRevenue } from '../utils';
 import { syncMissionToCloud, syncBudgetDataToCloud } from '../services/dataService';
@@ -76,6 +77,22 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
   const [activeTab, setActiveTab] = useState<'billing' | 'expenses' | 'pl' | 'budget'>('billing');
   const [isBudgetEditMode, setIsBudgetEditMode] = useState(false);
   
+  // Zone de recherche globale par onglet
+  const [searchQueries, setSearchQueries] = useState({
+    billing: '',
+    expenses: '',
+    pl: '',
+    budget: ''
+  });
+
+  const currentSearchQuery = searchQueries[activeTab];
+  const handleSearchChange = (query: string) => {
+    setSearchQueries(prev => ({ ...prev, [activeTab]: query }));
+  };
+  const handleClearSearch = () => {
+    setSearchQueries(prev => ({ ...prev, [activeTab]: '' }));
+  };
+  
   const [activeCommentCell, setActiveCommentCell] = useState<{
     type: 'billing' | 'expense';
     id: string;
@@ -103,7 +120,63 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
       } else {
         next.add(expenseId);
       }
-      localStorage.setItem('optimus_pointed_expenses', JSON.stringify(Array.from(next)));
+      try {
+        localStorage.setItem('optimus_pointed_expenses', JSON.stringify(Array.from(next)));
+      } catch {}
+      return next;
+    });
+  };
+
+  const handleToggleAllPointedExpenses = (allExpenseIds: string[], allSelected: boolean) => {
+    setPointedExpenses(prev => {
+      const next = new Set(prev);
+      if (allSelected) {
+        allExpenseIds.forEach(id => next.delete(id));
+      } else {
+        allExpenseIds.forEach(id => next.add(id));
+      }
+      try {
+        localStorage.setItem('optimus_pointed_expenses', JSON.stringify(Array.from(next)));
+      } catch {}
+      return next;
+    });
+  };
+
+  const [pointedBillings, setPointedBillings] = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem('optimus_pointed_billings');
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+
+  const handleTogglePointedBilling = (missionId: string) => {
+    setPointedBillings(prev => {
+      const next = new Set(prev);
+      if (next.has(missionId)) {
+        next.delete(missionId);
+      } else {
+        next.add(missionId);
+      }
+      try {
+        localStorage.setItem('optimus_pointed_billings', JSON.stringify(Array.from(next)));
+      } catch {}
+      return next;
+    });
+  };
+
+  const handleToggleAllPointedBilling = (allMissionIds: string[], allSelected: boolean) => {
+    setPointedBillings(prev => {
+      const next = new Set(prev);
+      if (allSelected) {
+        allMissionIds.forEach(id => next.delete(id));
+      } else {
+        allMissionIds.forEach(id => next.add(id));
+      }
+      try {
+        localStorage.setItem('optimus_pointed_billings', JSON.stringify(Array.from(next)));
+      } catch {}
       return next;
     });
   };
@@ -413,11 +486,44 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
 
   const billingRows = useMemo(() => sortedMissions.map(m => ({ mission: m, ...getMissionBillingData(m) })), [sortedMissions, globalFY]);
   
+  // Lignes de facturation filtrées selon la recherche
+  const filteredBillingRows = useMemo(() => {
+    const query = searchQueries.billing.trim().toLowerCase();
+    if (!query) return billingRows;
+    return billingRows.filter(row => {
+      const client = (row.mission.clientName || '').toLowerCase();
+      const name = (row.mission.name || '').toLowerCase();
+      const po = (row.mission.customerPo || '').toLowerCase();
+      return client.includes(query) || name.includes(query) || po.includes(query);
+    });
+  }, [billingRows, searchQueries.billing]);
+  
   const monthlyBillingTotals = useMemo(() => {
     const totals = Array(12).fill(0);
     billingRows.forEach(row => row.monthlyData.forEach((data, i) => totals[i] += (data.amount || 0)));
     return totals;
   }, [billingRows]);
+
+  // Identifiants des dépenses actuellement visibles dans le tableau selon la recherche
+  const visibleExpenseIds = useMemo(() => {
+    const query = searchQueries.expenses.trim().toLowerCase();
+    const ids: string[] = [];
+    CATEGORIES_CONFIG.forEach(cat => {
+      const catMatchesQuery = !query || cat.label.toLowerCase().includes(query);
+      const familiesForCat = (currentFamilies || []).filter(f => f.categoryId === cat.id);
+
+      familiesForCat.forEach(fam => {
+        const famMatchesQuery = !query || catMatchesQuery || fam.label.toLowerCase().includes(query);
+        const expensesForFam = currentManualExpenses.filter(e => e.familyId === fam.id);
+        const filteredExpenses = expensesForFam.filter(exp => {
+          if (!query || famMatchesQuery) return true;
+          return exp.label.toLowerCase().includes(query);
+        });
+        filteredExpenses.forEach(exp => ids.push(exp.id));
+      });
+    });
+    return ids;
+  }, [searchQueries.expenses, currentFamilies, currentManualExpenses]);
 
   const handleUpdateAmount = async (missionId: string, monthId: number, value: string) => {
     if (isGlobalView) return;
@@ -835,11 +941,42 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
         </div>
       )}
 
-      <div className="flex bg-white p-1 rounded-xl border shadow-sm w-full md:w-fit overflow-x-auto no-scrollbar">
-        <button onClick={() => setActiveTab('billing')} className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-xs font-black transition-all shrink-0 ${activeTab === 'billing' ? 'bg-navy text-yellow-accent shadow-md' : 'text-gray-400 hover:text-navy'}`}><ReceiptEuro size={16} /> FACTURATION</button>
-        <button onClick={() => setActiveTab('expenses')} className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-xs font-black transition-all shrink-0 ${activeTab === 'expenses' ? 'bg-navy text-yellow-accent shadow-md' : 'text-gray-400 hover:text-navy'}`}><Wallet size={16} /> DÉPENSES</button>
-        <button onClick={() => setActiveTab('pl')} className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-xs font-black transition-all shrink-0 ${activeTab === 'pl' ? 'bg-navy text-yellow-accent shadow-md' : 'text-gray-400 hover:text-navy'}`}><BarChart3 size={16} /> P&L</button>
-        <button onClick={() => setActiveTab('budget')} className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-xs font-black transition-all shrink-0 ${activeTab === 'budget' ? 'bg-navy text-yellow-accent shadow-md' : 'text-gray-400 hover:text-navy'}`}><Target size={16} /> BUDGET</button>
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div className="flex bg-white p-1 rounded-xl border shadow-sm w-full md:w-fit overflow-x-auto no-scrollbar">
+          <button onClick={() => setActiveTab('billing')} className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-xs font-black transition-all shrink-0 ${activeTab === 'billing' ? 'bg-navy text-yellow-accent shadow-md' : 'text-gray-400 hover:text-navy'}`}><ReceiptEuro size={16} /> FACTURATION</button>
+          <button onClick={() => setActiveTab('expenses')} className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-xs font-black transition-all shrink-0 ${activeTab === 'expenses' ? 'bg-navy text-yellow-accent shadow-md' : 'text-gray-400 hover:text-navy'}`}><Wallet size={16} /> DÉPENSES</button>
+          <button onClick={() => setActiveTab('pl')} className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-xs font-black transition-all shrink-0 ${activeTab === 'pl' ? 'bg-navy text-yellow-accent shadow-md' : 'text-gray-400 hover:text-navy'}`}><BarChart3 size={16} /> P&L</button>
+          <button onClick={() => setActiveTab('budget')} className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-xs font-black transition-all shrink-0 ${activeTab === 'budget' ? 'bg-navy text-yellow-accent shadow-md' : 'text-gray-400 hover:text-navy'}`}><Target size={16} /> BUDGET</button>
+        </div>
+
+        {/* Zone de recherche globale contextualisée par onglet */}
+        <div className="relative w-full md:w-80">
+          <input
+            type="text"
+            value={currentSearchQuery}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            placeholder={
+              activeTab === 'billing' ? 'Rechercher client, mission, PO...' :
+              activeTab === 'expenses' ? 'Rechercher libellé, poste...' :
+              activeTab === 'pl' ? 'Rechercher poste, catégorie...' :
+              'Rechercher objectif budget...'
+            }
+            className="w-full pl-3.5 pr-14 py-2 bg-white border border-gray-200 rounded-xl text-xs font-bold text-navy placeholder:text-gray-400 placeholder:font-medium shadow-sm focus:outline-none focus:ring-2 focus:ring-navy/20 focus:border-navy transition-all"
+          />
+          <div className="absolute inset-y-0 right-0 pr-3 flex items-center gap-1.5">
+            {currentSearchQuery && (
+              <button
+                type="button"
+                onClick={handleClearSearch}
+                className="text-gray-400 hover:text-navy p-0.5 rounded transition-colors"
+                title="Effacer la recherche"
+              >
+                <X size={14} />
+              </button>
+            )}
+            <Search size={15} className="text-gray-400 pointer-events-none" />
+          </div>
+        </div>
       </div>
 
       {activeTab === 'billing' && (
@@ -852,76 +989,119 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
             <table className="w-full text-left border-separate border-spacing-0">
               <thead className="sticky top-0 z-50 shadow-sm">
                 <tr className="text-[9px] uppercase font-black text-gray-400 border-b bg-white">
-                  <th style={{ width: BILLING_COL1_WIDTH, minWidth: BILLING_COL1_WIDTH }} className="p-4 border-b border-r bg-white sticky left-0 z-[60] shadow-sm">Mission / Client</th>
+                  <th style={{ width: BILLING_COL1_WIDTH, minWidth: BILLING_COL1_WIDTH }} className="p-4 border-b border-r bg-white sticky left-0 z-[60] shadow-sm">
+                    <div className="flex items-center gap-2.5">
+                      <input 
+                        type="checkbox" 
+                        className="w-3.5 h-3.5 rounded border-gray-300 text-navy accent-navy cursor-pointer transition-all hover:scale-110 shrink-0"
+                        checked={filteredBillingRows.length > 0 && filteredBillingRows.every(r => pointedBillings.has(r.mission.id))}
+                        ref={el => {
+                          if (el) {
+                            const all = filteredBillingRows.length > 0 && filteredBillingRows.every(r => pointedBillings.has(r.mission.id));
+                            const some = filteredBillingRows.some(r => pointedBillings.has(r.mission.id));
+                            el.indeterminate = !all && some;
+                          }
+                        }}
+                        onChange={() => {
+                          const all = filteredBillingRows.length > 0 && filteredBillingRows.every(r => pointedBillings.has(r.mission.id));
+                          handleToggleAllPointedBilling(filteredBillingRows.map(r => r.mission.id), all);
+                        }}
+                        title={filteredBillingRows.length > 0 && filteredBillingRows.every(r => pointedBillings.has(r.mission.id)) ? "Tout désélectionner" : "Tout sélectionner"}
+                      />
+                      <span>Mission / Client</span>
+                    </div>
+                  </th>
                   <th style={{ width: BILLING_COL2_WIDTH, minWidth: BILLING_COL2_WIDTH, left: BILLING_COL1_WIDTH }} className="p-4 border-b border-r bg-white text-navy sticky z-[60] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">Total Mission</th>
                   {MONTHS.map(m => <th key={m.id} className="p-4 border-b text-center min-w-[130px] bg-white">{m.label}</th>)}
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {billingRows.map((row) => (
-                  <tr key={row.mission.id} className="group hover:bg-navy/5 even:bg-slate-50/50">
-                    <td style={{ width: BILLING_COL1_WIDTH, minWidth: BILLING_COL1_WIDTH }} className="py-2 px-4 border-r sticky left-0 z-30 bg-white group-even:bg-slate-50 group-hover:bg-slate-50 transition-colors shadow-sm">
-                      <div className="flex items-start justify-between group/name">
-                        <div className="min-w-0">
-                          <div className="font-black text-navy uppercase text-[10px] whitespace-nowrap leading-tight truncate">{row.mission.clientName}</div>
-                          <div className="text-[10px] text-gray-500 font-bold whitespace-nowrap mt-1 leading-normal truncate">{row.mission.name}</div>
-                          {row.mission.customerPo && !isMobile && (
-                            <div className="mt-1 flex items-center gap-1.5 text-[8px] font-black text-navy/40 bg-navy/5 px-1.5 py-0.5 rounded w-fit border border-navy/5">
-                              <Hash size={10} className="text-yellow-accent" />
-                              PO: {row.mission.customerPo}
-                            </div>
-                          )}
-                        </div>
-                        {!isMobile && (
-                          <button 
-                            onClick={() => {
-                              setActivePoMissionId(row.mission.id);
-                              setTempPo(row.mission.customerPo || '');
-                            }}
-                            className={`shrink-0 p-1.5 rounded-lg transition-all ${row.mission.customerPo ? 'text-navy bg-yellow-accent/20 shadow-sm' : 'text-gray-300 opacity-0 group-hover/name:opacity-100 hover:bg-navy hover:text-white'}`}
-                            title="Gérer le numéro de commande (PO)"
-                          >
-                            <Hash size={14} strokeWidth={3} />
-                          </button>
-                        )}
-                      </div>
+                {filteredBillingRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={14} className="p-8 text-center text-gray-400 font-bold text-xs uppercase">
+                      Aucune mission ou client ne correspond à la recherche "{searchQueries.billing}"
                     </td>
-                    <td style={{ width: BILLING_COL2_WIDTH, minWidth: BILLING_COL2_WIDTH, left: BILLING_COL1_WIDTH }} className="py-2 px-4 border-r font-black text-navy text-[10px] text-right sticky z-30 bg-white group-even:bg-slate-50 group-hover:bg-slate-50 transition-colors shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
-                      <span>{formatCurrency(row.totalFY)}</span>
-                    </td>
-                    {row.monthlyData.map((data, i) => (
-                      <td key={i} className={`py-1 px-2 text-center border-r min-w-[130px] relative group/cell ${data.isValidated ? 'bg-emerald-50/10' : data.amount !== 0 ? 'bg-red-500/5' : 'bg-transparent'}`}>
-                        <div className="flex items-center gap-1.5 justify-end px-1 h-full min-h-[32px] relative z-10">
-                          {!isGlobalView && (
-                            <button 
-                              onClick={() => setActiveCommentCell({ type: 'billing', id: row.mission.id, monthId: MONTHS[i].id, currentComment: data.comment || '' })}
-                              className={`absolute top-1 left-1 p-0.5 rounded transition-all z-10 ${data.comment ? 'text-navy bg-yellow-accent shadow-xs ring-1 ring-yellow-accent' : 'text-gray-400 opacity-20 group-hover/cell:opacity-100 hover:text-navy hover:bg-navy/10 hover:opacity-100'}`}
-                              title={data.comment || "Ajouter un commentaire"}
-                            >
-                              <MessageSquare size={10} fill={data.comment ? "currentColor" : "none"} strokeWidth={data.comment ? 1.5 : 2.5} />
-                            </button>
-                          )}
-                          <input 
-                            type="text" 
-                            disabled={isGlobalView} 
-                            className={`w-full bg-transparent text-right pl-5 text-[10px] font-black focus:outline-none ${data.isValidated ? 'text-emerald-600' : data.amount === 0 ? 'text-gray-300' : data.amount < 0 ? 'text-emerald-500' : 'text-red-500'}`} 
-                            value={data.amount === 0 ? '- €' : formatCurrency(data.amount)} 
-                            onChange={(e) => handleUpdateAmount(row.mission.id, MONTHS[i].id, e.target.value)} 
-                          />
-                          {data.amount !== 0 && (
-                            <button 
-                              disabled={isGlobalView} 
-                              onClick={() => toggleValidation(row.mission.id, MONTHS[i].id)} 
-                              className={`rounded p-1 transition-all ${data.isValidated ? 'bg-emerald-500 text-white shadow-sm' : 'border-2 border-red-500 text-red-500 hover:bg-red-50'}`}
-                            >
-                              {data.isValidated ? <CheckCircle size={12} /> : <div className="w-2 h-2" />}
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    ))}
                   </tr>
-                ))}
+                ) : (
+                  filteredBillingRows.map((row) => {
+                    const isPointed = pointedBillings.has(row.mission.id);
+                    return (
+                      <tr key={row.mission.id} className={`group transition-colors ${isPointed ? 'bg-amber-100/60 font-semibold' : 'hover:bg-navy/5 even:bg-slate-50/50'}`}>
+                        <td style={{ width: BILLING_COL1_WIDTH, minWidth: BILLING_COL1_WIDTH }} className={`py-2 px-4 border-r sticky left-0 z-30 transition-colors shadow-sm ${isPointed ? 'bg-amber-50/95 group-hover:bg-amber-100/70' : 'bg-white group-even:bg-slate-50 group-hover:bg-slate-50'}`}>
+                          <div className="flex items-start justify-between group/name">
+                            <div className="flex items-start gap-2.5 min-w-0">
+                              <div className="pt-0.5 shrink-0">
+                                <input 
+                                  type="checkbox" 
+                                  className="w-3.5 h-3.5 text-navy border-gray-300 rounded focus:ring-navy focus:ring-2 accent-navy cursor-pointer transition-all hover:scale-110"
+                                  checked={isPointed}
+                                  onChange={() => handleTogglePointedBilling(row.mission.id)}
+                                  title="Pointer cette ligne"
+                                />
+                              </div>
+                              <div className="min-w-0">
+                                <div className="font-black text-navy uppercase text-[10px] whitespace-nowrap leading-tight truncate">{row.mission.clientName}</div>
+                                <div className="text-[10px] text-gray-500 font-bold whitespace-nowrap mt-1 leading-normal truncate">{row.mission.name}</div>
+                                {row.mission.customerPo && !isMobile && (
+                                  <div className="mt-1 flex items-center gap-1.5 text-[8px] font-black text-navy/40 bg-navy/5 px-1.5 py-0.5 rounded w-fit border border-navy/5">
+                                    <Hash size={10} className="text-yellow-accent" />
+                                    PO: {row.mission.customerPo}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            {!isMobile && (
+                              <button 
+                                onClick={() => {
+                                  setActivePoMissionId(row.mission.id);
+                                  setTempPo(row.mission.customerPo || '');
+                                }}
+                                className={`shrink-0 p-1.5 rounded-lg transition-all ${row.mission.customerPo ? 'text-navy bg-yellow-accent/20 shadow-sm' : 'text-gray-300 opacity-0 group-hover/name:opacity-100 hover:bg-navy hover:text-white'}`}
+                                title="Gérer le numéro de commande (PO)"
+                              >
+                                <Hash size={14} strokeWidth={3} />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                        <td style={{ width: BILLING_COL2_WIDTH, minWidth: BILLING_COL2_WIDTH, left: BILLING_COL1_WIDTH }} className={`py-2 px-4 border-r font-black text-navy text-[10px] text-right sticky z-30 transition-colors shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] ${isPointed ? 'bg-amber-50/95 group-hover:bg-amber-100/70' : 'bg-white group-even:bg-slate-50 group-hover:bg-slate-50'}`}>
+                          <span>{formatCurrency(row.totalFY)}</span>
+                        </td>
+                        {row.monthlyData.map((data, i) => (
+                          <td key={i} className={`py-1 px-2 text-center border-r min-w-[130px] relative group/cell transition-colors ${isPointed ? 'bg-amber-100/40' : data.isValidated ? 'bg-emerald-50/10' : data.amount !== 0 ? 'bg-red-500/5' : 'bg-transparent'}`}>
+                            <div className="flex items-center gap-1.5 justify-end px-1 h-full min-h-[32px] relative z-10">
+                              {!isGlobalView && (
+                                <button 
+                                  onClick={() => setActiveCommentCell({ type: 'billing', id: row.mission.id, monthId: MONTHS[i].id, currentComment: data.comment || '' })}
+                                  className={`absolute top-1 left-1 p-0.5 rounded transition-all z-10 ${data.comment ? 'text-navy bg-yellow-accent shadow-xs ring-1 ring-yellow-accent' : 'text-gray-400 opacity-20 group-hover/cell:opacity-100 hover:text-navy hover:bg-navy/10 hover:opacity-100'}`}
+                                  title={data.comment || "Ajouter un commentaire"}
+                                >
+                                  <MessageSquare size={10} fill={data.comment ? "currentColor" : "none"} strokeWidth={data.comment ? 1.5 : 2.5} />
+                                </button>
+                              )}
+                              <input 
+                                type="text" 
+                                disabled={isGlobalView} 
+                                className={`w-full bg-transparent text-right pl-5 text-[10px] font-black focus:outline-none ${data.isValidated ? 'text-emerald-600' : data.amount === 0 ? 'text-gray-300' : data.amount < 0 ? 'text-emerald-500' : 'text-red-500'}`} 
+                                value={data.amount === 0 ? '- €' : formatCurrency(data.amount)} 
+                                onChange={(e) => handleUpdateAmount(row.mission.id, MONTHS[i].id, e.target.value)} 
+                              />
+                              {data.amount !== 0 && (
+                                <button 
+                                  disabled={isGlobalView} 
+                                  onClick={() => toggleValidation(row.mission.id, MONTHS[i].id)} 
+                                  className={`rounded p-1 transition-all ${data.isValidated ? 'bg-emerald-500 text-white shadow-sm' : 'border-2 border-red-500 text-red-500 hover:bg-red-50'}`}
+                                >
+                                  {data.isValidated ? <CheckCircle size={12} /> : <div className="w-2 h-2" />}
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
               <tfoot className="sticky bottom-0 z-50 text-white shadow-[0_-4px_20px_rgba(0,0,0,0.3)]">
                 <tr className="font-black text-[10px] uppercase tracking-widest border-b border-white/5">
@@ -967,141 +1147,209 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
             <table className="w-full text-left border-separate border-spacing-0">
               <thead className="sticky top-0 z-50 bg-white shadow-sm">
                 <tr className="text-[9px] uppercase font-black text-gray-400 border-b bg-white">
-                  <th style={{ width: EXPENSE_COL1_WIDTH, minWidth: EXPENSE_COL1_WIDTH }} className="p-4 border-b border-r bg-white sticky left-0 z-[60] shadow-sm">Catégorie / Famille / Libellé</th>
+                  <th style={{ width: EXPENSE_COL1_WIDTH, minWidth: EXPENSE_COL1_WIDTH }} className="p-4 border-b border-r bg-white sticky left-0 z-[60] shadow-sm">
+                    <div className="flex items-center gap-2.5">
+                      <input 
+                        type="checkbox" 
+                        className="w-3.5 h-3.5 rounded border-gray-300 text-navy accent-navy cursor-pointer transition-all hover:scale-110 shrink-0"
+                        checked={visibleExpenseIds.length > 0 && visibleExpenseIds.every(id => pointedExpenses.has(id))}
+                        ref={el => {
+                          if (el) {
+                            const all = visibleExpenseIds.length > 0 && visibleExpenseIds.every(id => pointedExpenses.has(id));
+                            const some = visibleExpenseIds.some(id => pointedExpenses.has(id));
+                            el.indeterminate = !all && some;
+                          }
+                        }}
+                        onChange={() => {
+                          const all = visibleExpenseIds.length > 0 && visibleExpenseIds.every(id => pointedExpenses.has(id));
+                          handleToggleAllPointedExpenses(visibleExpenseIds, all);
+                        }}
+                        title={visibleExpenseIds.length > 0 && visibleExpenseIds.every(id => pointedExpenses.has(id)) ? "Tout désélectionner" : "Tout sélectionner"}
+                      />
+                      <span>Catégorie / Famille / Libellé</span>
+                    </div>
+                  </th>
                   {MONTHS.map(m => <th key={m.id} className="p-4 border-b text-center min-w-[110px] bg-white">{m.label}</th>)}
                   <th className="p-4 border-b border-l text-center bg-gray-50 min-w-[120px]">Total FY</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {CATEGORIES_CONFIG.map(cat => {
-                  return (
-                    <React.Fragment key={cat.id}>
-                      <tr className="bg-navy text-white">
-                        <td style={{ width: EXPENSE_COL1_WIDTH, minWidth: EXPENSE_COL1_WIDTH }} className="p-4 border-r sticky left-0 z-30 bg-navy font-black text-[11px] uppercase tracking-[0.2em] flex items-center justify-between group shadow-sm">
-                          <div className="flex items-center gap-3"><cat.icon size={16} className="text-yellow-accent" /> <span className="truncate">{cat.label}</span></div>
-                          {!isGlobalView && !isMobile && <button type="button" onClick={() => handleAddFamily(cat.id)} className="p-1 hover:bg-white hover:text-navy rounded-md transition-all flex items-center gap-1.5 px-3 border border-white/20 bg-white/10 shadow-sm"><Layers size={10} strokeWidth={4} /> <span className="text-[8px] font-black uppercase">Famille</span></button>}
-                        </td>
-                        {calculateCategoryTotals(cat.id).map((v, i) => (
-                          <td key={i} className={`p-4 text-center font-black text-[10px] bg-navy ${v < 0 ? 'text-emerald-400' : 'text-white'}`}>
-                            {formatCurrency(v)}
-                          </td>
-                        ))}
-                        <td className="p-4 border-l text-center font-black text-[10px] bg-navy text-yellow-accent">{formatCurrency(calculateCategoryTotals(cat.id).reduce((a, b) => a + b, 0))}</td>
-                      </tr>
-                      {(currentFamilies || []).filter(f => f.categoryId === cat.id).map(fam => {
-                        return (
-                          <React.Fragment key={fam.id}>
-                            <tr className="bg-gray-100/90 border-y">
-                              <td className="py-2.5 pl-10 pr-4 border-r sticky left-0 z-30 bg-gray-100 flex items-center justify-between shadow-sm w-[650px]">
-                                <input type="text" disabled={isGlobalView} className="bg-transparent font-black text-navy text-[10px] uppercase focus:outline-none flex-1 whitespace-normal break-words" value={fam.label} onChange={(e) => handleUpdateFamilyLabel(fam.id, e.target.value)} />
-                                {!isGlobalView && (
-                                  <div className="flex items-center gap-2">
-                                    <button type="button" onClick={() => handleAddExpenseRow(cat.id, fam.id)} className="p-1 hover:bg-navy hover:text-white rounded-md transition-all flex items-center gap-1.5 px-3 bg-white shadow-sm border border-navy/10"><Plus size={10} /> <span className="text-[8px] font-black uppercase">Ligne</span></button>
-                                  </div>
-                                )}
-                              </td>
-                              {calculateFamilyTotals(fam.id).map((v, i) => (
-                                <td key={i} className={`p-2 text-center font-bold text-[9px] bg-gray-50/50 ${v < 0 ? 'text-emerald-600' : 'text-navy/40'}`}>
-                                  {v !== 0 ? formatCurrency(v) : '-'}
-                                </td>
-                              ))}
-                              <td className="p-2 border-l text-center font-black text-navy/60 text-[9px] bg-gray-100/50">{formatCurrency(calculateFamilyTotals(fam.id).reduce((a, b) => a + b, 0))}</td>
-                            </tr>
-                            {currentManualExpenses.filter(e => e.familyId === fam.id).map(exp => {
-                              const isAuto = exp.id.startsWith('auto-');
-                              return (
-                                <tr key={exp.id} className={`group hover:bg-navy/[0.03] ${isAuto ? 'italic' : ''}`}>
-                                  <td className="py-2 pl-20 pr-4 border-r sticky left-0 z-30 bg-white group-hover:bg-slate-50 transition-colors shadow-sm w-[650px] flex items-center justify-between relative animate-fade-in">
-                                     <div className="absolute left-14 top-1/2 -translate-y-1/2 flex items-center">
-                                       <input 
-                                         type="checkbox" 
-                                         className="w-3.5 h-3.5 text-navy border-gray-300 rounded focus:ring-navy focus:ring-2 accent-navy cursor-pointer transition-all hover:scale-110"
-                                         checked={pointedExpenses.has(exp.id)}
-                                         onChange={() => handleTogglePointed(exp.id)}
-                                         title="Pointer cette ligne"
-                                       />
-                                     </div>
-                                     <div className="flex items-center flex-1 min-w-0 mr-2">
-                                        {isAuto && <Link size={12} className="text-blue-500 mr-2 shrink-0" />}
-                                        <input 
-                                          type="text" 
-                                          disabled={isGlobalView || isAuto} 
-                                          className={`bg-transparent font-medium text-navy text-[10px] focus:outline-none flex-1 whitespace-normal break-words ${isAuto ? 'text-blue-700 cursor-default' : ''}`} 
-                                          value={exp.label} 
-                                          onChange={(e) => handleUpdateExpenseLabel(exp.id, e.target.value)} 
-                                        />
-                                     </div>
-                                     {!isGlobalView && !isAuto && <button type="button" onClick={() => handleDeleteExpenseRow(exp.id)} className="p-1 hover:text-red-500 text-gray-300 transition-colors" title="Supprimer la ligne"><Trash2 size={12} /></button>}
-                                  </td>
-                                  {MONTHS.map((m, idx) => {
-                                    const val = exp.monthlyAmounts?.[m.id] || 0;
-                                    const comment = exp.monthlyComments?.[m.id] || '';
-                                    const status = exp.monthlyStatuses?.[m.id] || 'NONE';
-                                    
-                                    const statusStyles = {
-                                      NONE: 'bg-transparent',
-                                      FNP: 'bg-transparent',
-                                      RECEIVED: 'bg-amber-500/10',
-                                      VALIDATED: 'bg-emerald-500/10'
-                                    };
+                {(() => {
+                  const query = searchQueries.expenses.trim().toLowerCase();
+                  
+                  const hasMatches = !query || CATEGORIES_CONFIG.some(cat => {
+                    const catMatch = cat.label.toLowerCase().includes(query);
+                    const matchingFamilies = (currentFamilies || []).filter(f => f.categoryId === cat.id);
+                    return catMatch || matchingFamilies.some(fam => {
+                      const famMatch = fam.label.toLowerCase().includes(query);
+                      const matchingExpenses = currentManualExpenses.filter(e => e.familyId === fam.id);
+                      return famMatch || matchingExpenses.some(exp => exp.label.toLowerCase().includes(query));
+                    });
+                  });
 
-                                    return (
-                                      <td key={idx} className={`p-1.5 border-r relative group/cell transition-colors duration-200 ${statusStyles[status] || 'bg-transparent'}`}>
-                                        <div className="flex items-center h-full relative z-10">
-                                          {!isGlobalView && (
-                                            <button 
-                                              onClick={() => setActiveCommentCell({ type: 'expense', id: exp.id, monthId: m.id, currentComment: comment })}
-                                              className={`absolute top-0.5 left-0.5 p-1 rounded-md transition-all z-10 ${comment ? 'text-navy bg-yellow-accent shadow-md ring-1 ring-yellow-accent' : 'text-gray-400 opacity-20 group-hover/cell:opacity-100 hover:text-navy hover:bg-navy/10 hover:opacity-100'}`}
-                                              title={comment || "Ajouter un commentaire"}
-                                            >
-                                              <MessageSquare size={14} fill={comment ? "currentColor" : "none"} strokeWidth={comment ? 1.5 : 2.5} />
-                                            </button>
-                                          )}
+                  if (!hasMatches) {
+                    return (
+                      <tr>
+                        <td colSpan={14} className="p-8 text-center text-gray-400 font-bold text-xs uppercase">
+                          Aucune dépense ne correspond à la recherche "{searchQueries.expenses}"
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  return CATEGORIES_CONFIG.map(cat => {
+                    const catMatchesQuery = !query || cat.label.toLowerCase().includes(query);
+                    const familiesForCat = (currentFamilies || []).filter(f => f.categoryId === cat.id);
+                    
+                    const filteredFamilies = familiesForCat.filter(fam => {
+                      if (!query || catMatchesQuery) return true;
+                      const famMatchesQuery = fam.label.toLowerCase().includes(query);
+                      const expensesForFam = currentManualExpenses.filter(e => e.familyId === fam.id);
+                      const hasMatchingExpense = expensesForFam.some(exp => exp.label.toLowerCase().includes(query));
+                      return famMatchesQuery || hasMatchingExpense;
+                    });
+
+                    if (query && !catMatchesQuery && filteredFamilies.length === 0) {
+                      return null;
+                    }
+
+                    return (
+                      <React.Fragment key={cat.id}>
+                        <tr className="bg-navy text-white">
+                          <td style={{ width: EXPENSE_COL1_WIDTH, minWidth: EXPENSE_COL1_WIDTH }} className="p-4 border-r sticky left-0 z-30 bg-navy font-black text-[11px] uppercase tracking-[0.2em] flex items-center justify-between group shadow-sm">
+                            <div className="flex items-center gap-3"><cat.icon size={16} className="text-yellow-accent" /> <span className="truncate">{cat.label}</span></div>
+                            {!isGlobalView && !isMobile && <button type="button" onClick={() => handleAddFamily(cat.id)} className="p-1 hover:bg-white hover:text-navy rounded-md transition-all flex items-center gap-1.5 px-3 border border-white/20 bg-white/10 shadow-sm"><Layers size={10} strokeWidth={4} /> <span className="text-[8px] font-black uppercase">Famille</span></button>}
+                          </td>
+                          {calculateCategoryTotals(cat.id).map((v, i) => (
+                            <td key={i} className={`p-4 text-center font-black text-[10px] bg-navy ${v < 0 ? 'text-emerald-400' : 'text-white'}`}>
+                              {formatCurrency(v)}
+                            </td>
+                          ))}
+                          <td className="p-4 border-l text-center font-black text-[10px] bg-navy text-yellow-accent">{formatCurrency(calculateCategoryTotals(cat.id).reduce((a, b) => a + b, 0))}</td>
+                        </tr>
+                        {filteredFamilies.map(fam => {
+                          const famMatchesQuery = !query || catMatchesQuery || fam.label.toLowerCase().includes(query);
+                          const expensesForFam = currentManualExpenses.filter(e => e.familyId === fam.id);
+                          const filteredExpenses = expensesForFam.filter(exp => {
+                            if (!query || famMatchesQuery) return true;
+                            return exp.label.toLowerCase().includes(query);
+                          });
+
+                          return (
+                            <React.Fragment key={fam.id}>
+                              <tr className="bg-gray-100/90 border-y">
+                                <td className="py-2.5 pl-10 pr-4 border-r sticky left-0 z-30 bg-gray-100 flex items-center justify-between shadow-sm w-[650px]">
+                                  <input type="text" disabled={isGlobalView} className="bg-transparent font-black text-navy text-[10px] uppercase focus:outline-none flex-1 whitespace-normal break-words" value={fam.label} onChange={(e) => handleUpdateFamilyLabel(fam.id, e.target.value)} />
+                                  {!isGlobalView && (
+                                    <div className="flex items-center gap-2">
+                                      <button type="button" onClick={() => handleAddExpenseRow(cat.id, fam.id)} className="p-1 hover:bg-navy hover:text-white rounded-md transition-all flex items-center gap-1.5 px-3 bg-white shadow-sm border border-navy/10"><Plus size={10} /> <span className="text-[8px] font-black uppercase">Ligne</span></button>
+                                    </div>
+                                  )}
+                                </td>
+                                {calculateFamilyTotals(fam.id).map((v, i) => (
+                                  <td key={i} className={`p-2 text-center font-bold text-[9px] bg-gray-50/50 ${v < 0 ? 'text-emerald-600' : 'text-navy/40'}`}>
+                                    {v !== 0 ? formatCurrency(v) : '-'}
+                                  </td>
+                                ))}
+                                <td className="p-2 border-l text-center font-black text-navy/60 text-[9px] bg-gray-100/50">{formatCurrency(calculateFamilyTotals(fam.id).reduce((a, b) => a + b, 0))}</td>
+                              </tr>
+                              {filteredExpenses.map(exp => {
+                                const isAuto = exp.id.startsWith('auto-');
+                                const isPointed = pointedExpenses.has(exp.id);
+                                return (
+                                  <tr key={exp.id} className={`group transition-colors ${isPointed ? 'bg-amber-100/60 font-semibold' : 'hover:bg-navy/[0.03]'} ${isAuto ? 'italic' : ''}`}>
+                                    <td className={`py-2 pl-20 pr-4 border-r sticky left-0 z-30 transition-colors shadow-sm w-[650px] flex items-center justify-between relative animate-fade-in ${isPointed ? 'bg-amber-50/95 group-hover:bg-amber-100/70' : 'bg-white group-hover:bg-slate-50'}`}>
+                                       <div className="absolute left-14 top-1/2 -translate-y-1/2 flex items-center">
+                                         <input 
+                                           type="checkbox" 
+                                           className="w-3.5 h-3.5 text-navy border-gray-300 rounded focus:ring-navy focus:ring-2 accent-navy cursor-pointer transition-all hover:scale-110"
+                                           checked={isPointed}
+                                           onChange={() => handleTogglePointed(exp.id)}
+                                           title="Pointer cette ligne"
+                                         />
+                                       </div>
+                                       <div className="flex items-center flex-1 min-w-0 mr-2">
+                                          {isAuto && <Link size={12} className="text-blue-500 mr-2 shrink-0" />}
                                           <input 
                                             type="text" 
-                                            disabled={isGlobalView} 
-                                            className={`w-full bg-transparent text-right text-[10px] font-bold focus:outline-none px-1 ${val < 0 ? 'text-emerald-600' : ''} ${status === 'VALIDATED' ? 'text-emerald-700' : status === 'RECEIVED' ? 'text-amber-700' : status === 'FNP' ? 'text-gray-700' : ''} ${isAuto ? 'text-blue-700 font-black' : ''}`} 
-                                            value={val === 0 ? '- €' : formatCurrency(val)} 
-                                            onChange={(e) => handleUpdateExpenseAmount(exp.id, m.id, e.target.value)} 
+                                            disabled={isGlobalView || isAuto} 
+                                            className={`bg-transparent font-medium text-navy text-[10px] focus:outline-none flex-1 whitespace-normal break-words ${isAuto ? 'text-blue-700 cursor-default' : ''}`} 
+                                            value={exp.label} 
+                                            onChange={(e) => handleUpdateExpenseLabel(exp.id, e.target.value)} 
                                           />
-                                          {!isGlobalView && (isAuto || val !== 0) && (
-                                            <button 
-                                              onClick={() => handleToggleExpenseStatus(exp.id, m.id)}
-                                              className={`ml-1.5 p-0.5 rounded transition-all flex items-center justify-center shrink-0 ${status !== 'NONE' ? 'opacity-100' : 'opacity-0 group-hover/cell:opacity-100'}`}
-                                              title={
-                                                status === 'VALIDATED' ? 'Validé Finance' : 
-                                                status === 'RECEIVED' ? 'Facture parvenue' : 
-                                                status === 'FNP' ? 'FNP' : 
-                                                'Définir statut'
-                                              }
-                                            >
-                                              {status === 'VALIDATED' ? (
-                                                <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 border border-emerald-600 shadow-sm" />
-                                              ) : status === 'RECEIVED' ? (
-                                                <div className="w-2.5 h-2.5 rounded-full bg-amber-500 border border-amber-600 shadow-sm" />
-                                              ) : status === 'FNP' ? (
-                                                <div className="w-2.5 h-2.5 rounded-full bg-white border border-gray-400 shadow-sm" />
-                                              ) : (
-                                                <div className="w-2.5 h-2.5 rounded-full border border-dashed border-gray-300 hover:border-navy" />
-                                              )}
-                                            </button>
-                                          )}
-                                        </div>
-                                      </td>
-                                    );
-                                  })}
-                                  <td className={`p-1.5 border-l text-center font-bold text-[10px] ${(Object.values(exp.monthlyAmounts || {}) as number[]).reduce((a: number, b: number) => a + b, 0) < 0 ? 'text-emerald-600' : 'text-navy'} ${isAuto ? 'text-blue-800 font-black' : ''}`}>
-                                    {formatCurrency((Object.values(exp.monthlyAmounts || {}) as number[]).reduce((a: number, b: number) => a + b, 0))}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </React.Fragment>
-                        );
-                      })}
-                    </React.Fragment>
-                  );
-                })}
+                                       </div>
+                                       {!isGlobalView && !isAuto && <button type="button" onClick={() => handleDeleteExpenseRow(exp.id)} className="p-1 hover:text-red-500 text-gray-300 transition-colors" title="Supprimer la ligne"><Trash2 size={12} /></button>}
+                                    </td>
+                                    {MONTHS.map((m, idx) => {
+                                      const val = exp.monthlyAmounts?.[m.id] || 0;
+                                      const comment = exp.monthlyComments?.[m.id] || '';
+                                      const status = exp.monthlyStatuses?.[m.id] || 'NONE';
+                                      
+                                      const statusStyles = {
+                                        NONE: 'bg-transparent',
+                                        FNP: 'bg-transparent',
+                                        RECEIVED: 'bg-amber-500/10',
+                                        VALIDATED: 'bg-emerald-500/10'
+                                      };
+
+                                      return (
+                                        <td key={idx} className={`p-1.5 border-r relative group/cell transition-colors duration-200 ${isPointed ? 'bg-amber-100/40' : (statusStyles[status] || 'bg-transparent')}`}>
+                                          <div className="flex items-center h-full relative z-10">
+                                            {!isGlobalView && (
+                                              <button 
+                                                onClick={() => setActiveCommentCell({ type: 'expense', id: exp.id, monthId: m.id, currentComment: comment })}
+                                                className={`absolute top-0.5 left-0.5 p-1 rounded-md transition-all z-10 ${comment ? 'text-navy bg-yellow-accent shadow-md ring-1 ring-yellow-accent' : 'text-gray-400 opacity-20 group-hover/cell:opacity-100 hover:text-navy hover:bg-navy/10 hover:opacity-100'}`}
+                                                title={comment || "Ajouter un commentaire"}
+                                              >
+                                                <MessageSquare size={14} fill={comment ? "currentColor" : "none"} strokeWidth={comment ? 1.5 : 2.5} />
+                                              </button>
+                                            )}
+                                            <input 
+                                              type="text" 
+                                              disabled={isGlobalView} 
+                                              className={`w-full bg-transparent text-right text-[10px] font-bold focus:outline-none px-1 ${val < 0 ? 'text-emerald-600' : ''} ${status === 'VALIDATED' ? 'text-emerald-700' : status === 'RECEIVED' ? 'text-amber-700' : status === 'FNP' ? 'text-gray-700' : ''} ${isAuto ? 'text-blue-700 font-black' : ''}`} 
+                                              value={val === 0 ? '- €' : formatCurrency(val)} 
+                                              onChange={(e) => handleUpdateExpenseAmount(exp.id, m.id, e.target.value)} 
+                                            />
+                                            {!isGlobalView && (isAuto || val !== 0) && (
+                                              <button 
+                                                onClick={() => handleToggleExpenseStatus(exp.id, m.id)}
+                                                className={`ml-1.5 p-0.5 rounded transition-all flex items-center justify-center shrink-0 ${status !== 'NONE' ? 'opacity-100' : 'opacity-0 group-hover/cell:opacity-100'}`}
+                                                title={
+                                                  status === 'VALIDATED' ? 'Validé Finance' : 
+                                                  status === 'RECEIVED' ? 'Facture parvenue' : 
+                                                  status === 'FNP' ? 'FNP' : 
+                                                  'Définir statut'
+                                                }
+                                              >
+                                                {status === 'VALIDATED' ? (
+                                                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 border border-emerald-600 shadow-sm" />
+                                                ) : status === 'RECEIVED' ? (
+                                                  <div className="w-2.5 h-2.5 rounded-full bg-amber-500 border border-amber-600 shadow-sm" />
+                                                ) : status === 'FNP' ? (
+                                                  <div className="w-2.5 h-2.5 rounded-full bg-white border border-gray-400 shadow-sm" />
+                                                ) : (
+                                                  <div className="w-2.5 h-2.5 rounded-full border border-dashed border-gray-300 hover:border-navy" />
+                                                )}
+                                              </button>
+                                            )}
+                                          </div>
+                                        </td>
+                                      );
+                                    })}
+                                    <td className={`p-1.5 border-l text-center font-bold text-[10px] transition-colors ${isPointed ? 'bg-amber-100/40' : ''} ${(Object.values(exp.monthlyAmounts || {}) as number[]).reduce((a: number, b: number) => a + b, 0) < 0 ? 'text-emerald-600' : 'text-navy'} ${isAuto ? 'text-blue-800 font-black' : ''}`}>
+                                      {formatCurrency((Object.values(exp.monthlyAmounts || {}) as number[]).reduce((a: number, b: number) => a + b, 0))}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </React.Fragment>
+                          );
+                        })}
+                      </React.Fragment>
+                    );
+                  });
+                })()}
               </tbody>
               <tfoot className="sticky bottom-0 z-50 bg-navy text-white shadow-[0_-4px_20px_rgba(0,0,0,0.4)]">
                 <tr className="font-black text-[11px] uppercase tracking-[0.2em]">
@@ -1144,90 +1392,135 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  <tr className="bg-navy/5 group">
-                    <td className="p-4 border-r sticky left-0 z-10 bg-gray-50 font-black text-navy text-[11px] shadow-sm uppercase group-hover:bg-slate-100 transition-colors w-[400px]">CHIFFRE D'AFFAIRES (VENDU)</td>
-                    {(plData.totalRevenueMonthly as number[]).map((v: number, i: number) => <td key={i} className={`p-4 text-center font-black text-[10px] ${v < 0 ? 'text-red-500' : 'text-navy'}`}>{formatCurrency(v)}</td>)}
-                    <td className="p-4 border-l text-center font-black text-[10px] bg-navy/80 text-blue-100">{formatCurrency(plData.getAggregates(plData.totalRevenueMonthly).fytd)}</td>
-                    <td className="p-4 border-l text-center font-black text-[10px] bg-navy/80 text-amber-100">{formatCurrency(plData.getAggregates(plData.totalRevenueMonthly).fytg)}</td>
-                    <td className="p-4 border-l text-center font-black text-[10px] bg-navy text-yellow-accent">{formatCurrency(plData.getAggregates(plData.totalRevenueMonthly).fy)}</td>
-                    <td className="p-4 border-l text-center font-black text-[10px] bg-gray-50">
-                      {isBudgetEditMode ? <input type="text" className="w-full border border-emerald-300 rounded px-2 py-1 text-right text-[10px] font-black" value={currentBudgetValues['revenue_total'] || ''} onChange={(e) => handleUpdateBudgetVal('revenue_total', e.target.value)} placeholder="0" /> : formatCurrency(plData.totalBudgetRevenue)}
-                    </td>
-                    <td className="p-4 border-l text-center bg-gray-50 font-black text-[10px]">{formatCurrency(plData.getAggregates(plData.totalRevenueMonthly).fy - (plData.totalBudgetRevenue))}</td>
-                  </tr>
+                  {(() => {
+                    const query = searchQueries.pl.trim().toLowerCase();
+                    const revenueMatches = !query || "chiffre d'affaires (vendu)".includes(query) || "ca".includes(query);
+                    const ebitMatches = !query || "ebit".includes(query);
+                    const marginMatches = !query || "marge ebit (%)".includes(query) || "marge".includes(query);
 
-                  <tr className="h-4 bg-gray-50/50"><td colSpan={18}></td></tr>
+                    const hasExpensesMatches = (plData.expensesByCategory || []).some((cat: any) => {
+                      const catMatch = cat.label.toLowerCase().includes(query);
+                      const famMatch = (cat.families || []).some((fam: any) => fam.label.toLowerCase().includes(query));
+                      return catMatch || famMatch;
+                    });
 
-                  {(plData.expensesByCategory || []).map((cat: any) => {
-                    const catAgg = plData.getAggregates(cat.monthly);
-                    return (
-                      <React.Fragment key={cat.id}>
-                        <tr className="bg-gray-100 group">
-                            <td className="p-4 border-r sticky left-0 z-10 bg-gray-100 font-black text-gray-700 text-[10px] uppercase shadow-sm w-[400px] flex items-center gap-2">
-                              <cat.icon size={14} className="text-navy" /> {cat.label}
-                            </td>
-                            {(cat.monthly as number[]).map((v: number, i: number) => <td key={i} className={`p-4 text-center text-[10px] font-bold ${v !== 0 ? 'text-navy' : 'text-gray-300'}`}>{v !== 0 ? formatCurrency(v) : '-'}</td>)}
-                            <td className="p-4 border-l text-center font-black text-[10px] bg-navy/10 text-navy">{formatCurrency(catAgg.fytd)}</td>
-                            <td className="p-4 border-l text-center font-black text-[10px] bg-navy/10 text-navy">{formatCurrency(catAgg.fytg)}</td>
-                            <td className="p-4 border-l text-center font-black text-[10px] bg-navy/20 text-navy">{formatCurrency(catAgg.fy)}</td>
-                            <td className="p-4 border-l text-center font-black text-[10px] bg-gray-100">
-                              {isBudgetEditMode ? <input type="text" className="w-full border border-emerald-300 rounded px-2 py-1 text-right text-[10px]" value={currentBudgetValues[cat.id] || ''} onChange={(e) => handleUpdateBudgetVal(cat.id, e.target.value)} placeholder="0" /> : formatCurrency(cat.budget)}
-                            </td>
-                            <td className="p-4 border-l text-center font-black text-[10px] bg-gray-100">{formatCurrency(catAgg.fy - (cat.budget as number))}</td>
+                    if (query && !revenueMatches && !ebitMatches && !marginMatches && !hasExpensesMatches) {
+                      return (
+                        <tr>
+                          <td colSpan={18} className="p-8 text-center text-gray-400 font-bold text-xs uppercase">
+                            Aucun poste du P&L ne correspond à la recherche "{searchQueries.pl}"
+                          </td>
                         </tr>
-                        {(cat.families || []).map((fam: any) => {
-                            const famAgg = plData.getAggregates(fam.monthly);
-                            return (
-                              <tr key={fam.id} className="bg-white/50 hover:bg-gray-50/50">
-                                <td className="p-3 pl-8 border-r sticky left-0 z-10 bg-white font-black text-gray-500 text-[9px] uppercase shadow-sm w-[400px]">
-                                  {fam.label}
-                                </td>
-                                {(fam.monthly as number[]).map((v: number, i: number) => <td key={i} className="p-3 text-center text-[9px] font-bold">{v !== 0 ? formatCurrency(v) : '-'}</td>)}
-                                <td className="p-3 border-l text-center text-[9px] font-bold bg-gray-50/20">{formatCurrency(famAgg.fytd)}</td>
-                                <td className="p-3 border-l text-center text-[9px] font-bold bg-gray-50/20">{formatCurrency(famAgg.fytg)}</td>
-                                <td className="p-3 border-l text-center text-[9px] font-black bg-gray-50/40">{formatCurrency(famAgg.fy)}</td>
-                                <td className="p-3 border-l text-center font-black text-[10px] bg-white">
-                                  {isBudgetEditMode ? <input type="text" className="w-full border border-emerald-300 rounded px-2 py-1 text-right text-[9px]" value={currentBudgetValues[fam.id] || ''} onChange={(e) => handleUpdateBudgetVal(fam.id, e.target.value)} placeholder="0" /> : formatCurrency(fam.budget)}
-                                </td>
-                                <td className="p-3 border-l text-center text-[9px] font-bold">{formatCurrency(famAgg.fy - (fam.budget as number))}</td>
-                              </tr>
-                            );
-                        })}
-                      </React.Fragment>
-                    );
-                  })}
+                      );
+                    }
 
-                  <tr className="bg-navy text-white group">
-                    <td className="p-6 border-r sticky left-0 z-10 bg-navy font-black text-[12px] uppercase shadow-[4px_0_10px_-2px_rgba(0,0,0,0.5)] w-[400px]"><Zap size={18} className="inline mr-2 text-yellow-accent" /> EBIT</td>
-                    {(plData.ebitMonthly as number[]).map((v: number, i: number) => <td key={i} className={`p-6 text-center font-black text-[11px] ${v < 0 ? 'text-red-400' : 'text-yellow-accent'}`}>{formatCurrency(v)}</td>)}
-                    <td className="p-6 border-l text-center font-black text-[12px] bg-navy text-blue-200">{formatCurrency(plData.getAggregates(plData.ebitMonthly).fytd)}</td>
-                    <td className="p-6 border-l text-center font-black text-[12px] bg-navy text-amber-200">{formatCurrency(plData.getAggregates(plData.ebitMonthly).fytg)}</td>
-                    <td className="p-6 border-l text-center font-black text-[12px] bg-navy text-yellow-accent">{formatCurrency(plData.getAggregates(plData.ebitMonthly).fy)}</td>
-                    <td className="p-6 border-l text-center font-black text-[11px] bg-navy text-white/60">{formatCurrency(plData.totalBudgetEbit as number)}</td>
-                    <td className="p-6 border-l text-center bg-gray-800 font-black text-[11px]">{formatCurrency(plData.getAggregates(plData.ebitMonthly).fy - (plData.totalBudgetEbit))}</td>
-                  </tr>
-                  
-                  <tr className="bg-navy/80 text-white/90">
-                    <td className="p-4 border-r border-white/5 sticky left-0 z-10 bg-[#2d3b4d] font-black text-[11px] uppercase shadow-[4px_0_10px_-2px_rgba(0,0,0,0.3)] w-[400px] flex items-center gap-2"><Percent size={14} className="text-yellow-accent" /> MARGE EBIT (%)</td>
-                    {(plData.ebitPercentMonthly as number[]).map((v: number, i: number) => (
-                      <td key={i} className={`p-4 text-center font-black text-[10px] ${v >= 15 ? 'text-emerald-400' : v > 0 ? 'text-orange-400' : 'text-red-400'}`}>
-                        {formatPercent(v)}
-                      </td>
-                    ))}
-                    <td className={`p-4 border-l border-white/5 text-center font-black text-[10px] bg-navy/60 ${plData.ebitPercentAggregates.fytd >= 15 ? 'text-emerald-400' : plData.ebitPercentAggregates.fytd > 0 ? 'text-orange-400' : 'text-red-400'}`}>
-                      {formatPercent(plData.ebitPercentAggregates.fytd)}
-                    </td>
-                    <td className={`p-4 border-l border-white/5 text-center font-black text-[10px] bg-navy/60 ${plData.ebitPercentAggregates.fytg >= 15 ? 'text-emerald-400' : plData.ebitPercentAggregates.fytg > 0 ? 'text-orange-400' : 'text-red-400'}`}>
-                      {formatPercent(plData.ebitPercentAggregates.fytg)}
-                    </td>
-                    <td className={`p-4 border-l border-white/5 text-center font-black text-[10px] bg-navy/60 ${plData.ebitPercentAggregates.fy >= 15 ? 'text-emerald-400' : plData.ebitPercentAggregates.fy > 0 ? 'text-orange-400' : 'text-red-400'}`}>
-                      {formatPercent(plData.ebitPercentAggregates.fy)}
-                    </td>
-                    <td className="p-4 border-l border-white/5 text-center font-black text-[10px] bg-navy/60 text-white/40">{formatPercent(plData.ebitPercentAggregates.budget)}</td>
-                    <td className={`p-4 border-l border-white/5 text-center bg-gray-800 font-black text-[10px] ${(plData.ebitPercentAggregates.fy - plData.ebitPercentAggregates.budget) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                      {formatPercent((plData.ebitPercentAggregates.fy) - (plData.ebitPercentAggregates.budget))}
-                    </td>
-                  </tr>
+                    return (
+                      <>
+                        {revenueMatches && (
+                          <tr className="bg-navy/5 group">
+                            <td className="p-4 border-r sticky left-0 z-10 bg-gray-50 font-black text-navy text-[11px] shadow-sm uppercase group-hover:bg-slate-100 transition-colors w-[400px]">CHIFFRE D'AFFAIRES (VENDU)</td>
+                            {(plData.totalRevenueMonthly as number[]).map((v: number, i: number) => <td key={i} className={`p-4 text-center font-black text-[10px] ${v < 0 ? 'text-red-500' : 'text-navy'}`}>{formatCurrency(v)}</td>)}
+                            <td className="p-4 border-l text-center font-black text-[10px] bg-navy/80 text-blue-100">{formatCurrency(plData.getAggregates(plData.totalRevenueMonthly).fytd)}</td>
+                            <td className="p-4 border-l text-center font-black text-[10px] bg-navy/80 text-amber-100">{formatCurrency(plData.getAggregates(plData.totalRevenueMonthly).fytg)}</td>
+                            <td className="p-4 border-l text-center font-black text-[10px] bg-navy text-yellow-accent">{formatCurrency(plData.getAggregates(plData.totalRevenueMonthly).fy)}</td>
+                            <td className="p-4 border-l text-center font-black text-[10px] bg-gray-50">
+                              {isBudgetEditMode ? <input type="text" className="w-full border border-emerald-300 rounded px-2 py-1 text-right text-[10px] font-black" value={currentBudgetValues['revenue_total'] || ''} onChange={(e) => handleUpdateBudgetVal('revenue_total', e.target.value)} placeholder="0" /> : formatCurrency(plData.totalBudgetRevenue)}
+                            </td>
+                            <td className="p-4 border-l text-center bg-gray-50 font-black text-[10px]">{formatCurrency(plData.getAggregates(plData.totalRevenueMonthly).fy - (plData.totalBudgetRevenue))}</td>
+                          </tr>
+                        )}
+
+                        {(!query || (revenueMatches && hasExpensesMatches)) && (
+                          <tr className="h-4 bg-gray-50/50"><td colSpan={18}></td></tr>
+                        )}
+
+                        {(plData.expensesByCategory || []).map((cat: any) => {
+                          const catMatches = !query || cat.label.toLowerCase().includes(query);
+                          const matchingFamilies = (cat.families || []).filter((fam: any) => {
+                            if (!query || catMatches) return true;
+                            return fam.label.toLowerCase().includes(query);
+                          });
+
+                          if (query && !catMatches && matchingFamilies.length === 0) {
+                            return null;
+                          }
+
+                          const catAgg = plData.getAggregates(cat.monthly);
+                          return (
+                            <React.Fragment key={cat.id}>
+                              <tr className="bg-gray-100 group">
+                                  <td className="p-4 border-r sticky left-0 z-10 bg-gray-100 font-black text-gray-700 text-[10px] uppercase shadow-sm w-[400px] flex items-center gap-2">
+                                    <cat.icon size={14} className="text-navy" /> {cat.label}
+                                  </td>
+                                  {(cat.monthly as number[]).map((v: number, i: number) => <td key={i} className={`p-4 text-center text-[10px] font-bold ${v !== 0 ? 'text-navy' : 'text-gray-300'}`}>{v !== 0 ? formatCurrency(v) : '-'}</td>)}
+                                  <td className="p-4 border-l text-center font-black text-[10px] bg-navy/10 text-navy">{formatCurrency(catAgg.fytd)}</td>
+                                  <td className="p-4 border-l text-center font-black text-[10px] bg-navy/10 text-navy">{formatCurrency(catAgg.fytg)}</td>
+                                  <td className="p-4 border-l text-center font-black text-[10px] bg-navy/20 text-navy">{formatCurrency(catAgg.fy)}</td>
+                                  <td className="p-4 border-l text-center font-black text-[10px] bg-gray-100">
+                                    {isBudgetEditMode ? <input type="text" className="w-full border border-emerald-300 rounded px-2 py-1 text-right text-[10px]" value={currentBudgetValues[cat.id] || ''} onChange={(e) => handleUpdateBudgetVal(cat.id, e.target.value)} placeholder="0" /> : formatCurrency(cat.budget)}
+                                  </td>
+                                  <td className="p-4 border-l text-center font-black text-[10px] bg-gray-100">{formatCurrency(catAgg.fy - (cat.budget as number))}</td>
+                              </tr>
+                              {matchingFamilies.map((fam: any) => {
+                                  const famAgg = plData.getAggregates(fam.monthly);
+                                  return (
+                                    <tr key={fam.id} className="bg-white/50 hover:bg-gray-50/50">
+                                      <td className="p-3 pl-8 border-r sticky left-0 z-10 bg-white font-black text-gray-500 text-[9px] uppercase shadow-sm w-[400px]">
+                                        {fam.label}
+                                      </td>
+                                      {(fam.monthly as number[]).map((v: number, i: number) => <td key={i} className="p-3 text-center text-[9px] font-bold">{v !== 0 ? formatCurrency(v) : '-'}</td>)}
+                                      <td className="p-3 border-l text-center text-[9px] font-bold bg-gray-50/20">{formatCurrency(famAgg.fytd)}</td>
+                                      <td className="p-3 border-l text-center text-[9px] font-bold bg-gray-50/20">{formatCurrency(famAgg.fytg)}</td>
+                                      <td className="p-3 border-l text-center text-[9px] font-black bg-gray-50/40">{formatCurrency(famAgg.fy)}</td>
+                                      <td className="p-3 border-l text-center font-black text-[10px] bg-white">
+                                        {isBudgetEditMode ? <input type="text" className="w-full border border-emerald-300 rounded px-2 py-1 text-right text-[9px]" value={currentBudgetValues[fam.id] || ''} onChange={(e) => handleUpdateBudgetVal(fam.id, e.target.value)} placeholder="0" /> : formatCurrency(fam.budget)}
+                                      </td>
+                                      <td className="p-3 border-l text-center text-[9px] font-bold">{formatCurrency(famAgg.fy - (fam.budget as number))}</td>
+                                    </tr>
+                                  );
+                              })}
+                            </React.Fragment>
+                          );
+                        })}
+
+                        {ebitMatches && (
+                          <tr className="bg-navy text-white group">
+                            <td className="p-6 border-r sticky left-0 z-10 bg-navy font-black text-[12px] uppercase shadow-[4px_0_10px_-2px_rgba(0,0,0,0.5)] w-[400px]"><Zap size={18} className="inline mr-2 text-yellow-accent" /> EBIT</td>
+                            {(plData.ebitMonthly as number[]).map((v: number, i: number) => <td key={i} className={`p-6 text-center font-black text-[11px] ${v < 0 ? 'text-red-400' : 'text-yellow-accent'}`}>{formatCurrency(v)}</td>)}
+                            <td className="p-6 border-l text-center font-black text-[12px] bg-navy text-blue-200">{formatCurrency(plData.getAggregates(plData.ebitMonthly).fytd)}</td>
+                            <td className="p-6 border-l text-center font-black text-[12px] bg-navy text-amber-200">{formatCurrency(plData.getAggregates(plData.ebitMonthly).fytg)}</td>
+                            <td className="p-6 border-l text-center font-black text-[12px] bg-navy text-yellow-accent">{formatCurrency(plData.getAggregates(plData.ebitMonthly).fy)}</td>
+                            <td className="p-6 border-l text-center font-black text-[11px] bg-navy text-white/60">{formatCurrency(plData.totalBudgetEbit as number)}</td>
+                            <td className="p-6 border-l text-center bg-gray-800 font-black text-[11px]">{formatCurrency(plData.getAggregates(plData.ebitMonthly).fy - (plData.totalBudgetEbit))}</td>
+                          </tr>
+                        )}
+                        
+                        {marginMatches && (
+                          <tr className="bg-navy/80 text-white/90">
+                            <td className="p-4 border-r border-white/5 sticky left-0 z-10 bg-[#2d3b4d] font-black text-[11px] uppercase shadow-[4px_0_10px_-2px_rgba(0,0,0,0.3)] w-[400px] flex items-center gap-2"><Percent size={14} className="text-yellow-accent" /> MARGE EBIT (%)</td>
+                            {(plData.ebitPercentMonthly as number[]).map((v: number, i: number) => (
+                              <td key={i} className={`p-4 text-center font-black text-[10px] ${v >= 15 ? 'text-emerald-400' : v > 0 ? 'text-orange-400' : 'text-red-400'}`}>
+                                {formatPercent(v)}
+                              </td>
+                            ))}
+                            <td className={`p-4 border-l border-white/5 text-center font-black text-[10px] bg-navy/60 ${plData.ebitPercentAggregates.fytd >= 15 ? 'text-emerald-400' : plData.ebitPercentAggregates.fytd > 0 ? 'text-orange-400' : 'text-red-400'}`}>
+                              {formatPercent(plData.ebitPercentAggregates.fytd)}
+                            </td>
+                            <td className={`p-4 border-l border-white/5 text-center font-black text-[10px] bg-navy/60 ${plData.ebitPercentAggregates.fytg >= 15 ? 'text-emerald-400' : plData.ebitPercentAggregates.fytg > 0 ? 'text-orange-400' : 'text-red-400'}`}>
+                              {formatPercent(plData.ebitPercentAggregates.fytg)}
+                            </td>
+                            <td className={`p-4 border-l border-white/5 text-center font-black text-[10px] bg-navy/60 ${plData.ebitPercentAggregates.fy >= 15 ? 'text-emerald-400' : plData.ebitPercentAggregates.fy > 0 ? 'text-orange-400' : 'text-red-400'}`}>
+                              {formatPercent(plData.ebitPercentAggregates.fy)}
+                            </td>
+                            <td className="p-4 border-l border-white/5 text-center font-black text-[10px] bg-navy/60 text-white/40">{formatPercent(plData.ebitPercentAggregates.budget)}</td>
+                            <td className={`p-4 border-l border-white/5 text-center bg-gray-800 font-black text-[10px] ${(plData.ebitPercentAggregates.fy - plData.ebitPercentAggregates.budget) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                              {formatPercent((plData.ebitPercentAggregates.fy) - (plData.ebitPercentAggregates.budget))}
+                            </td>
+                          </tr>
+                        )}
+                      </>
+                    );
+                  })()}
                 </tbody>
               </table>
             )}
@@ -1262,75 +1555,118 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  <tr className="bg-navy/5 group">
-                    <td className="p-2.5 border-r sticky left-0 z-10 bg-gray-50 font-black text-navy text-[12px] shadow-sm uppercase w-[320px] whitespace-nowrap overflow-hidden text-ellipsis">CHIFFRE D'AFFAIRES (VENDU)</td>
-                    <td className="p-2.5 border-l text-center font-black text-[12px] bg-yellow-accent/5">
-                      {isGlobalView ? formatCurrency(plData.totalBudgetRevenue) : (
-                        <input 
-                          type="text" 
-                          className="w-full max-w-[180px] mx-auto border-2 border-yellow-accent/20 rounded-lg px-3 py-1 text-center text-[12px] font-black focus:border-yellow-accent outline-none shadow-sm" 
-                          value={currentBudgetValues['revenue_total'] ? formatCurrency(currentBudgetValues['revenue_total']) : '0 €'} 
-                          onChange={(e) => handleUpdateBudgetVal('revenue_total', e.target.value)} 
-                          placeholder="0 €" 
-                        />
-                      )}
-                    </td>
-                  </tr>
+                  {(() => {
+                    const query = searchQueries.budget.trim().toLowerCase();
+                    const revenueMatches = !query || "chiffre d'affaires (vendu)".includes(query) || "ca".includes(query);
+                    const ebitMatches = !query || "ebit".includes(query) || "ebit fy budgeté".includes(query);
+                    const marginMatches = !query || "marge ebit (%)".includes(query) || "marge".includes(query);
 
-                  {(plData.expensesByCategory || []).map((cat: any) => {
-                    const catBudget = currentBudgetValues[cat.id] || 0;
+                    const hasExpensesMatches = (plData.expensesByCategory || []).some((cat: any) => {
+                      const catMatch = cat.label.toLowerCase().includes(query);
+                      const famMatch = (cat.families || []).some((fam: any) => fam.label.toLowerCase().includes(query));
+                      return catMatch || famMatch;
+                    });
+
+                    if (query && !revenueMatches && !ebitMatches && !marginMatches && !hasExpensesMatches) {
+                      return (
+                        <tr>
+                          <td colSpan={2} className="p-8 text-center text-gray-400 font-bold text-xs uppercase">
+                            Aucun poste de budget ne correspond à la recherche "{searchQueries.budget}"
+                          </td>
+                        </tr>
+                      );
+                    }
+
                     return (
-                      <React.Fragment key={cat.id}>
-                        <tr className="bg-gray-100 group">
-                            <td className="p-2.5 border-r sticky left-0 z-10 bg-gray-100 font-black text-gray-700 text-[11px] uppercase shadow-sm w-[320px] flex items-center gap-3 whitespace-nowrap overflow-hidden text-ellipsis">
-                              <cat.icon size={18} className="text-navy" /> {cat.label}
-                            </td>
-                            <td className="p-2.5 border-l text-center font-black text-[11px] bg-gray-100/50">
-                              {isGlobalView ? formatCurrency(catBudget) : (
+                      <>
+                        {revenueMatches && (
+                          <tr className="bg-navy/5 group">
+                            <td className="p-2.5 border-r sticky left-0 z-10 bg-gray-50 font-black text-navy text-[12px] shadow-sm uppercase w-[320px] whitespace-nowrap overflow-hidden text-ellipsis">CHIFFRE D'AFFAIRES (VENDU)</td>
+                            <td className="p-2.5 border-l text-center font-black text-[12px] bg-yellow-accent/5">
+                              {isGlobalView ? formatCurrency(plData.totalBudgetRevenue) : (
                                 <input 
                                   type="text" 
-                                  className="w-full max-w-[180px] mx-auto border border-gray-300 rounded-lg px-3 py-0.5 text-center text-[11px] font-black focus:border-navy outline-none" 
-                                  value={currentBudgetValues[cat.id] ? formatCurrency(catBudget) : '0 €'} 
-                                  onChange={(e) => handleUpdateBudgetVal(cat.id, e.target.value)} 
+                                  className="w-full max-w-[180px] mx-auto border-2 border-yellow-accent/20 rounded-lg px-3 py-1 text-center text-[12px] font-black focus:border-yellow-accent outline-none shadow-sm" 
+                                  value={currentBudgetValues['revenue_total'] ? formatCurrency(currentBudgetValues['revenue_total']) : '0 €'} 
+                                  onChange={(e) => handleUpdateBudgetVal('revenue_total', e.target.value)} 
                                   placeholder="0 €" 
                                 />
                               )}
                             </td>
-                        </tr>
-                        {(cat.families || []).map((fam: any) => {
-                            const famBudget = currentBudgetValues[fam.id] || 0;
-                            return (
-                              <tr key={fam.id} className="bg-white/50 hover:bg-gray-50/50">
-                                <td className="p-1.5 pl-10 border-r sticky left-0 z-10 bg-white font-black text-gray-500 text-[10px] uppercase shadow-sm w-[320px] whitespace-nowrap overflow-hidden text-ellipsis">
-                                  {fam.label}
-                                </td>
-                                <td className="p-1.5 border-l text-center font-black text-[10px] bg-white">
-                                  {isGlobalView ? formatCurrency(famBudget) : (
-                                    <input 
-                                      type="text" 
-                                      className="w-full max-w-[150px] mx-auto border border-gray-200 rounded px-2 py-0.5 text-center text-[10px] font-bold" 
-                                      value={currentBudgetValues[fam.id] ? formatCurrency(famBudget) : '0 €'} 
-                                      onChange={(e) => handleUpdateBudgetVal(fam.id, e.target.value)} 
-                                      placeholder="0 €" 
-                                    />
-                                  )}
-                                </td>
-                              </tr>
-                            );
-                        })}
-                      </React.Fragment>
-                    );
-                  })}
+                          </tr>
+                        )}
 
-                  <tr className="bg-navy text-white group">
-                    <td className="p-4 border-r sticky left-0 z-10 bg-navy font-black text-[13px] uppercase shadow-[4px_0_10px_-2px_rgba(0,0,0,0.5)] w-[320px] tracking-widest whitespace-nowrap overflow-hidden text-ellipsis"><Zap size={20} className="inline mr-3 text-yellow-accent" /> EBIT FY BUDGETÉ</td>
-                    <td className="p-4 border-l text-center font-black text-[13px] bg-navy text-yellow-accent">{formatCurrency(plData.totalBudgetEbit)}</td>
-                  </tr>
-                  
-                  <tr className="bg-gray-800 text-white group">
-                    <td className="p-3 border-r sticky left-0 z-10 bg-[#2d3b4d] font-black text-[11px] uppercase shadow-[4px_0_10px_-2px_rgba(0,0,0,0.3)] w-[320px] tracking-widest flex items-center gap-2"><Percent size={14} className="text-yellow-accent" /> MARGE EBIT (%) BUDGETÉE</td>
-                    <td className="p-3 border-l text-center font-black text-[11px] bg-gray-800 text-yellow-accent">{formatPercent(plData.ebitPercentAggregates.budget)}</td>
-                  </tr>
+                        {(plData.expensesByCategory || []).map((cat: any) => {
+                          const catMatches = !query || cat.label.toLowerCase().includes(query);
+                          const matchingFamilies = (cat.families || []).filter((fam: any) => {
+                            if (!query || catMatches) return true;
+                            return fam.label.toLowerCase().includes(query);
+                          });
+
+                          if (query && !catMatches && matchingFamilies.length === 0) {
+                            return null;
+                          }
+
+                          const catBudget = currentBudgetValues[cat.id] || 0;
+                          return (
+                            <React.Fragment key={cat.id}>
+                              <tr className="bg-gray-100 group">
+                                  <td className="p-2.5 border-r sticky left-0 z-10 bg-gray-100 font-black text-gray-700 text-[11px] uppercase shadow-sm w-[320px] flex items-center gap-3 whitespace-nowrap overflow-hidden text-ellipsis">
+                                    <cat.icon size={18} className="text-navy" /> {cat.label}
+                                  </td>
+                                  <td className="p-2.5 border-l text-center font-black text-[11px] bg-gray-100/50">
+                                    {isGlobalView ? formatCurrency(catBudget) : (
+                                      <input 
+                                        type="text" 
+                                        className="w-full max-w-[180px] mx-auto border border-gray-300 rounded-lg px-3 py-0.5 text-center text-[11px] font-black focus:border-navy outline-none" 
+                                        value={currentBudgetValues[cat.id] ? formatCurrency(catBudget) : '0 €'} 
+                                        onChange={(e) => handleUpdateBudgetVal(cat.id, e.target.value)} 
+                                        placeholder="0 €" 
+                                      />
+                                    )}
+                                  </td>
+                              </tr>
+                              {matchingFamilies.map((fam: any) => {
+                                  const famBudget = currentBudgetValues[fam.id] || 0;
+                                  return (
+                                    <tr key={fam.id} className="bg-white/50 hover:bg-gray-50/50">
+                                      <td className="p-1.5 pl-10 border-r sticky left-0 z-10 bg-white font-black text-gray-500 text-[10px] uppercase shadow-sm w-[320px] whitespace-nowrap overflow-hidden text-ellipsis">
+                                        {fam.label}
+                                      </td>
+                                      <td className="p-1.5 border-l text-center font-black text-[10px] bg-white">
+                                        {isGlobalView ? formatCurrency(famBudget) : (
+                                          <input 
+                                            type="text" 
+                                            className="w-full max-w-[150px] mx-auto border border-gray-200 rounded px-2 py-0.5 text-center text-[10px] font-bold" 
+                                            value={currentBudgetValues[fam.id] ? formatCurrency(famBudget) : '0 €'} 
+                                            onChange={(e) => handleUpdateBudgetVal(fam.id, e.target.value)} 
+                                            placeholder="0 €" 
+                                          />
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                              })}
+                            </React.Fragment>
+                          );
+                        })}
+
+                        {ebitMatches && (
+                          <tr className="bg-navy text-white group">
+                            <td className="p-4 border-r sticky left-0 z-10 bg-navy font-black text-[13px] uppercase shadow-[4px_0_10px_-2px_rgba(0,0,0,0.5)] w-[320px] tracking-widest whitespace-nowrap overflow-hidden text-ellipsis"><Zap size={20} className="inline mr-3 text-yellow-accent" /> EBIT FY BUDGETÉ</td>
+                            <td className="p-4 border-l text-center font-black text-[13px] bg-navy text-yellow-accent">{formatCurrency(plData.totalBudgetEbit)}</td>
+                          </tr>
+                        )}
+                        
+                        {marginMatches && (
+                          <tr className="bg-gray-800 text-white group">
+                            <td className="p-3 border-r sticky left-0 z-10 bg-[#2d3b4d] font-black text-[11px] uppercase shadow-[4px_0_10px_-2px_rgba(0,0,0,0.3)] w-[320px] tracking-widest flex items-center gap-2"><Percent size={14} className="text-yellow-accent" /> MARGE EBIT (%) BUDGETÉE</td>
+                            <td className="p-3 border-l text-center font-black text-[11px] bg-gray-800 text-yellow-accent">{formatPercent(plData.ebitPercentAggregates.budget)}</td>
+                          </tr>
+                        )}
+                      </>
+                    );
+                  })()}
                 </tbody>
               </table>
             )}
