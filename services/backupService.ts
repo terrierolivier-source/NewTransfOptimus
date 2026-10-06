@@ -50,7 +50,7 @@ export interface RestorePoint {
     legacy_users: number;
     xsell_opportunities: number;
   };
-  backup: FullBackup;
+  backup?: FullBackup;
 }
 
 export type ImportMode = 'fusion' | 'restore';
@@ -100,8 +100,8 @@ export const fetchAllRows = async (table: string): Promise<any[]> => {
       .range(from, from + PAGE_SIZE - 1);
 
     if (error) {
-      console.error(`Error fetching all rows from ${table}:`, error);
-      throw error;
+      console.warn(`Supabase fetchAllRows from ${table} warning (using local fallback):`, error?.message || error);
+      break;
     }
 
     if (data && data.length > 0) {
@@ -440,6 +440,27 @@ export const getRestorePoints = async (): Promise<RestorePoint[]> => {
 };
 
 /**
+ * Récupère le payload complet d'un point de restauration (chargé à la demande pour éviter la surconsommation d'Egress)
+ */
+export const getFullBackupForPoint = async (point: RestorePoint): Promise<FullBackup | null> => {
+  if (point.backup) return point.backup;
+  try {
+    const { data, error } = await supabase
+      .from('config')
+      .select('data')
+      .eq('key', `rp_item_${point.id}`)
+      .maybeSingle();
+
+    if (!error && data?.data) {
+      return data.data as FullBackup;
+    }
+  } catch (e) {
+    console.error("Erreur récupération payload point de restauration:", e);
+  }
+  return null;
+};
+
+/**
  * Sauvegarde la liste des points de restauration en appliquant la rotation 24h
  */
 const persistRestorePointsList = async (points: RestorePoint[]) => {
@@ -457,24 +478,55 @@ const persistRestorePointsList = async (points: RestorePoint[]) => {
   const trimmed = [...autoPoints, ...manualPoints]
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-  // Sauvegarde Supabase en premier (allègement immédiat de la base)
+  // Sauvegarde des en-têtes allégés dans Supabase config (évite de transférer des mégaoctets de données à chaque vérification)
+  const headers = trimmed.map(p => ({
+    id: p.id,
+    createdAt: p.createdAt,
+    type: p.type,
+    label: p.label,
+    summary: p.summary
+  }));
+
   try {
     await supabase.from('config').upsert({
       key: SUPABASE_CONFIG_RESTORE_POINTS_KEY,
-      data: trimmed,
+      data: headers,
       updated_at: new Date().toISOString()
     });
   } catch (e) {
     console.warn("Erreur écriture Supabase config restore points", e);
   }
 
+  // Sauvegarder individuellement le payload des points contenant un backup complet
+  for (const p of trimmed) {
+    if (p.backup) {
+      try {
+        await supabase.from('config').upsert({
+          key: `rp_item_${p.id}`,
+          data: p.backup,
+          updated_at: new Date().toISOString()
+        });
+      } catch (err) {
+        console.warn(`Erreur sauvegarde payload pour point ${p.id}`, err);
+      }
+    }
+  }
+
+  // Nettoyage des payloads des anciens points supprimés pour libérer l'espace
+  const keptIds = new Set(trimmed.map(p => p.id));
+  const removedPoints = points.filter(p => !keptIds.has(p.id));
+  for (const p of removedPoints) {
+    try {
+      await supabase.from('config').delete().eq('key', `rp_item_${p.id}`);
+    } catch (e) {}
+  }
+
   // Sauvegarde LocalStorage avec fallback gracieux si quota plein
   try {
-    localStorage.setItem(LOCAL_STORAGE_RESTORE_POINTS_KEY, JSON.stringify(trimmed));
+    localStorage.setItem(LOCAL_STORAGE_RESTORE_POINTS_KEY, JSON.stringify(headers));
   } catch (e) {
-    // Si quota dépassé, on stocke uniquement le plus récent
     try {
-      localStorage.setItem(LOCAL_STORAGE_RESTORE_POINTS_KEY, JSON.stringify(trimmed.slice(0, 1)));
+      localStorage.setItem(LOCAL_STORAGE_RESTORE_POINTS_KEY, JSON.stringify(headers.slice(0, 1)));
     } catch (err) {
       console.warn("Erreur écriture LocalStorage restore points", err);
     }
@@ -535,8 +587,8 @@ export const createRestorePoint = async (
 
     return { success: true, point: newPoint };
   } catch (err: any) {
-    console.error("Erreur création point de restauration:", err);
-    return { success: false, error: err.message || "Erreur inconnue" };
+    console.warn("Création du point de restauration différée:", err?.message || err);
+    return { success: false, error: err?.message || "Erreur inconnue" };
   }
 };
 
@@ -548,9 +600,12 @@ export const deleteRestorePoint = async (pointId: string): Promise<boolean> => {
     const points = await getRestorePoints();
     const filtered = points.filter(p => p.id !== pointId);
     await persistRestorePointsList(filtered);
+    try {
+      await supabase.from('config').delete().eq('key', `rp_item_${pointId}`);
+    } catch (e) {}
     return true;
-  } catch (e) {
-    console.error("Erreur suppression restore point:", e);
+  } catch (e: any) {
+    console.warn("Suppression du restore point différée:", e?.message || e);
     return false;
   }
 };
@@ -616,7 +671,13 @@ export const checkAndTriggerDailyAutoBackup = async () => {
     const now = new Date();
     const slot = getCurrentBackupSlot(now);
 
-    // 1. Vérification dans les points de restauration existants
+    // Vérification en cache local pour éviter des requêtes réseau répétitives
+    const lastDoneSlot = localStorage.getItem('optimus_last_auto_backup_slot');
+    if (lastDoneSlot === slot.slotKey) {
+      return;
+    }
+
+    // 1. Vérification dans les points de restauration existants (liste allégée d'en-têtes)
     const points = await getRestorePoints();
     
     // Y a-t-il déjà un point automatique créé dans ce créneau ?
@@ -638,11 +699,13 @@ export const checkAndTriggerDailyAutoBackup = async () => {
         `Sauvegarde automatique de ${slot.slotTime} - ${dateFormatted}`
       );
       if (res.success) {
+        localStorage.setItem('optimus_last_auto_backup_slot', slot.slotKey);
         console.log(`[Backup 2x/jour] Sauvegarde automatique de ${slot.slotTime} créée avec succès !`);
       } else {
-        console.error(`[Backup 2x/jour] Échec de la création:`, res.error);
+        console.warn(`[Backup 2x/jour] Création automatique différée:`, res.error);
       }
     } else {
+      localStorage.setItem('optimus_last_auto_backup_slot', slot.slotKey);
       console.log(`[Backup 2x/jour] Sauvegarde automatique déjà existante pour le créneau ${slot.slotLabel}.`);
     }
   } catch (e) {

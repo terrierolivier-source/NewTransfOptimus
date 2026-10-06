@@ -28,7 +28,8 @@ import {
   RestorePoint,
   getRestorePoints,
   createRestorePoint,
-  deleteRestorePoint
+  deleteRestorePoint,
+  getFullBackupForPoint
 } from '../services/backupService';
 
 interface AdminProps {
@@ -678,11 +679,17 @@ const Admin: React.FC<AdminProps> = ({ state, updateState }) => {
 
     setIsPointRestoring(true);
     try {
-      // 1. Créer d'abord un point de sécurité automatique avant écrasement
+      // 1. Récupérer le backup complet (chargé à la demande pour préserver la bande passante / quota Egress)
+      const backupToRestore = selectedPointToRestore.backup || await getFullBackupForPoint(selectedPointToRestore);
+      if (!backupToRestore) {
+        throw new Error("Impossible de charger le contenu de cette sauvegarde.");
+      }
+
+      // 2. Créer d'abord un point de sécurité automatique avant écrasement
       await createRestorePoint('auto', `Point de sécurité avant restauration de "${selectedPointToRestore.label}"`);
 
-      // 2. Exécuter la restauration intégrale
-      const result = await importBackupJson(selectedPointToRestore.backup, 'restore');
+      // 3. Exécuter la restauration intégrale
+      const result = await importBackupJson(backupToRestore, 'restore');
       if (result.success) {
         const cloudState = await loadStateFromCloud();
         updateState(cloudState);
@@ -712,9 +719,14 @@ const Admin: React.FC<AdminProps> = ({ state, updateState }) => {
     }
   };
 
-  const handleDownloadPointJson = (point: RestorePoint) => {
+  const handleDownloadPointJson = async (point: RestorePoint) => {
     try {
-      const blob = new Blob([JSON.stringify(point.backup, null, 2)], { type: 'application/json' });
+      const backup = point.backup || await getFullBackupForPoint(point);
+      if (!backup) {
+        alert("Impossible de charger les données complètes de ce point de sauvegarde.");
+        return;
+      }
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;

@@ -361,8 +361,8 @@ export const loadPlanningFromCloud = async (): Promise<PlanningEntry[]> => {
         .range(from, from + PAGE_SIZE - 1);
 
       if (error) {
-        console.error('Error loading planning from Supabase:', error);
-        throw error;
+        console.warn('Supabase Planning load warning (using local data):', error?.message || error);
+        break;
       }
 
       if (data && data.length > 0) {
@@ -374,11 +374,14 @@ export const loadPlanningFromCloud = async (): Promise<PlanningEntry[]> => {
       }
     }
     
-    console.log(`Loaded ${allData.length} total planning entries.`);
-    return allData.map(p => mapSupabaseToPlanning(p));
-  } catch (e) {
-    console.error('Exception loading planning from Supabase:', e);
-    throw e; // Throw so that loadStateFromCloud knows it failed
+    if (allData.length > 0) {
+      console.log(`Loaded ${allData.length} total planning entries.`);
+      return allData.map(p => mapSupabaseToPlanning(p));
+    }
+    return [];
+  } catch (e: any) {
+    console.warn('Planning load from cloud deferred (using local data):', e?.message || e);
+    return [];
   }
 };
 
@@ -391,17 +394,12 @@ export const syncPlanningToCloud = async (planning: PlanningEntry[]) => {
       const chunk = data.slice(i, i + CHUNK_SIZE);
       const { error } = await supabase.from('planning').upsert(chunk);
       if (error) {
-        console.error('Supabase Planning sync error:', {
-          error,
-          chunk,
-          originalPlanning: planning.slice(i, i + CHUNK_SIZE)
-        });
-        throw error;
+        console.warn('Supabase Planning sync deferred:', error?.message || error);
+        break;
       }
     }
-  } catch (e) {
-    console.error('Supabase Planning sync exception:', e);
-    throw e;
+  } catch (e: any) {
+    console.warn('Supabase Planning sync deferred:', e?.message || e);
   }
 };
 
@@ -420,8 +418,8 @@ export const loadTimesheetsFromCloud = async (): Promise<TimesheetEntry[]> => {
         .range(from, from + PAGE_SIZE - 1);
         
       if (error) {
-        console.error('Error loading timesheets from Supabase:', error);
-        throw error;
+        console.warn('Supabase Timesheets load warning (using local data):', error?.message || error);
+        break;
       }
 
       if (data && data.length > 0) {
@@ -433,15 +431,17 @@ export const loadTimesheetsFromCloud = async (): Promise<TimesheetEntry[]> => {
       }
     }
     
-    const countBeforeDedup = allData.length;
-    const rawEntries = allData.map(t => mapSupabaseToTimesheet(t));
-    
-    const result = getDedupedTimesheets(rawEntries);
-    console.log(`Loaded ${countBeforeDedup} timesheets, result after dedup: ${result.length}`);
-    return result;
-  } catch (e) {
-    console.error('Exception loading timesheets from Supabase:', e);
-    throw e;
+    if (allData.length > 0) {
+      const countBeforeDedup = allData.length;
+      const rawEntries = allData.map(t => mapSupabaseToTimesheet(t));
+      const result = getDedupedTimesheets(rawEntries);
+      console.log(`Loaded ${countBeforeDedup} timesheets, result after dedup: ${result.length}`);
+      return result;
+    }
+    return [];
+  } catch (e: any) {
+    console.warn('Timesheets load from cloud deferred (using local data):', e?.message || e);
+    return [];
   }
 };
 

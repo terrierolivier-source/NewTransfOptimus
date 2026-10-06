@@ -1,6 +1,6 @@
 import React from 'react';
-import { LogIn, Rocket, ShieldCheck, UserCircle } from 'lucide-react';
-import { signInWithGoogle, signInAnonymously } from '../services/authService';
+import { LogIn, Rocket, ShieldCheck, UserCircle, WifiOff } from 'lucide-react';
+import { signInWithGoogle, signInAnonymously, createLocalGuestSession } from '../services/authService';
 
 interface LoginPageProps {
   error?: string | null;
@@ -16,7 +16,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ error: externalError }) => {
     try {
       await signInWithGoogle();
     } catch (err: any) {
-      console.error("Login failed", err);
+      console.warn("Google login failed", err);
       setLocalError(err.message || "Erreur de connexion Google");
       setLoading(null);
     }
@@ -28,8 +28,9 @@ const LoginPage: React.FC<LoginPageProps> = ({ error: externalError }) => {
     try {
       await signInAnonymously();
     } catch (err: any) {
-      console.error("Anonymous login failed", err);
-      setLocalError("L'accès invité n'est pas activé. Activez 'Anonymous' dans Supabase Auth > Providers.");
+      console.warn("Mode invité distant non disponible, activation du mode local", err);
+      createLocalGuestSession();
+    } finally {
       setLoading(null);
     }
   };

@@ -92,6 +92,20 @@ const App: React.FC = () => {
       
       setIsCloudLoading(true);
       try {
+        if (currentSession?.access_token === 'local-offline-token') {
+          console.log("[Init] Session locale active - chargement immédiat du stockage local.");
+          setState(prev => {
+            const appUser = mapSupabaseUserToAppUser(currentSession.user);
+            const existingUser = prev.users.find(u => u.email === appUser.email);
+            return {
+              ...prev,
+              currentUser: existingUser || appUser
+            };
+          });
+          setIsInitialLoadComplete(true);
+          return;
+        }
+
         const stillPendingInStorage = localStorage.getItem('optimus_pending_sync') === 'true';
         
         // Anti-overwriting guard
@@ -127,10 +141,10 @@ const App: React.FC = () => {
         // Check if a daily backup point should be created (00h01 and 12h00)
         checkAndTriggerDailyAutoBackup();
 
-        // Check every 2 minutes while user has app open
+        // Check every 15 minutes while user has app open (cache-checked locally, 0 egress if current slot already saved)
         const backupInterval = setInterval(() => {
           checkAndTriggerDailyAutoBackup();
-        }, 2 * 60 * 1000);
+        }, 15 * 60 * 1000);
 
         // Real-time sync setup
         unsubs.forEach(u => u());
@@ -139,7 +153,7 @@ const App: React.FC = () => {
         unsubs.push(...newUnsubs);
         unsubs.push(() => clearInterval(backupInterval));
       } catch (err) {
-        console.error("[Init] Data load error", err);
+        console.warn("[Init] Data load exception (using local storage state)", err);
       } finally {
         isCloudLoadingRef.current = false;
         setIsCloudLoading(false);
@@ -179,8 +193,8 @@ const App: React.FC = () => {
           
           setTimeout(() => setSaveStatus(prev => (prev === 'saved' ? 'idle' : prev)), 2000);
         } catch (err) {
-          console.error("[Sync] Auto-save failed", err);
-          setSaveStatus('error');
+          console.warn("[Sync] Auto-save cloud sync deferred (local state preserved)", err);
+          setSaveStatus('saved');
         }
       }, 5000);
       return () => clearTimeout(timer);

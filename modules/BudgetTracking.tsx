@@ -187,8 +187,90 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
   const { missions, globalCountry, globalFY, manualExpenses, budgetFamilies, budgetValues, users } = state;
 
   // Affichage du détail des lignes de dépenses dans l'onglet Budget et P&L (masqué par défaut pour rester au cran au-dessus)
-  const [showExpenseLinesInBudget, setShowExpenseLinesInBudget] = useState<boolean>(false);
+  const [showExpenseLinesInBudget, setShowExpenseLinesInBudget] = useState<boolean>(true);
   const [showDetailsInPL, setShowDetailsInPL] = useState<boolean>(false);
+
+  // Gestion des commentaires de cellules dans l'onglet Budget
+  const [budgetCellComments, setBudgetCellComments] = useState<Record<string, Record<string, Record<string, string>>>>(() => {
+    try {
+      const stored = localStorage.getItem('optimus_budget_cell_comments');
+      return stored ? JSON.parse(stored) : {};
+    } catch (e) {
+      console.error('Failed to load budget cell comments from localStorage', e);
+      return {};
+    }
+  });
+
+  const [activeBudgetCommentCell, setActiveBudgetCommentCell] = useState<{
+    key: string;
+    rowLabel: string;
+    colLabel: string;
+    comment: string;
+  } | null>(null);
+
+  const getCellComment = (cellKey: string): string => {
+    const fy = globalFY || 'FY25';
+    const country = (globalCountry as string) || 'France';
+    return budgetCellComments[fy]?.[country]?.[cellKey] || '';
+  };
+
+  const handleSaveCellComment = (cellKey: string, commentText: string) => {
+    const fy = globalFY || 'FY25';
+    const country = (globalCountry as string) || 'France';
+    const trimmed = commentText.trim();
+
+    setBudgetCellComments(prev => {
+      const fyBucket = { ...(prev[fy] || {}) };
+      const countryBucket = { ...(fyBucket[country] || {}) };
+
+      if (trimmed) {
+        countryBucket[cellKey] = trimmed;
+      } else {
+        delete countryBucket[cellKey];
+      }
+
+      fyBucket[country] = countryBucket;
+      const next = { ...prev, [fy]: fyBucket };
+
+      try {
+        localStorage.setItem('optimus_budget_cell_comments', JSON.stringify(next));
+      } catch (e) {
+        console.error('Failed to save budget cell comments to localStorage', e);
+      }
+
+      return next;
+    });
+
+    setActiveBudgetCommentCell(null);
+  };
+
+  const renderCellCommentTrigger = (cellKey: string, rowLabel: string, colLabel: string) => {
+    const comment = getCellComment(cellKey);
+    const hasComment = Boolean(comment);
+
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setActiveBudgetCommentCell({
+            key: cellKey,
+            rowLabel,
+            colLabel,
+            comment
+          });
+        }}
+        className={`absolute top-0.5 right-0.5 p-1 rounded-md transition-all z-20 ${
+          hasComment
+            ? 'text-amber-700 bg-amber-100/90 hover:bg-amber-200 opacity-100 shadow-2xs border border-amber-300/70'
+            : 'text-gray-400 hover:text-navy hover:bg-gray-200/80 opacity-0 group-hover/cell:opacity-100'
+        }`}
+        title={hasComment ? `Commentaire (${colLabel}) :\n${comment}` : 'Ajouter un commentaire sur cette cellule'}
+      >
+        <MessageSquare size={11} className={hasComment ? 'fill-amber-500 text-amber-700' : ''} />
+      </button>
+    );
+  };
 
   // Référence persistante au state pour la synchronisation débouncée
   const stateRef = useRef(state);
@@ -1601,7 +1683,8 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
 
               const hasExpensesMatches = (plData.expensesByCategory || []).some((cat: any) => {
                 const catMatch = cat.label.toLowerCase().includes(query);
-                const famMatch = (cat.families || []).some((fam: any) => fam.label.toLowerCase().includes(query));
+                const isDetailHidden = cat.id === 'personnel' || cat.id === 'contractors';
+                const famMatch = !isDetailHidden && (cat.families || []).some((fam: any) => fam.label.toLowerCase().includes(query));
                 return catMatch || famMatch;
               });
 
@@ -1767,8 +1850,10 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
                         {columns.map(col => {
                           const val = getRevenueVal(col);
                           const rawVal = currentBudgetValues[col.prefix + 'revenue_total'];
+                          const cellKey = `${col.id}_revenue_total`;
                           return (
-                            <td key={col.id} className={`p-2.5 border-r text-center ${col.cellBg}`}>
+                            <td key={col.id} className={`p-2.5 border-r text-center relative group/cell ${col.cellBg}`}>
+                              {renderCellCommentTrigger(cellKey, "Chiffre d'affaires (vendu)", col.label)}
                               {col.isMirror || isGlobalView ? (
                                 <div className="flex flex-col items-center justify-center">
                                   <span className="font-black text-[12px] text-navy">
@@ -1797,7 +1882,9 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
                     {/* DÉPENSES PAR CATÉGORIES & FAMILLES & LIGNES */}
                     {(plData.expensesByCategory || []).map((cat: any) => {
                       const catMatches = !query || cat.label.toLowerCase().includes(query);
-                      const matchingFamilies = (cat.families || []).filter((fam: any) => {
+                      // Masquer le détail des lignes pour "Personnel Expenses" et "contractors" (ne garder que la catégorie)
+                      const isDetailHidden = cat.id === 'personnel' || cat.id === 'contractors';
+                      const matchingFamilies = isDetailHidden ? [] : (cat.families || []).filter((fam: any) => {
                         if (!query || catMatches) return true;
                         return fam.label.toLowerCase().includes(query);
                       });
@@ -1819,8 +1906,10 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
                             {columns.map(col => {
                               const val = getCatVal(cat, col);
                               const rawVal = currentBudgetValues[col.prefix + cat.id];
+                              const cellKey = `${col.id}_cat_${cat.id}`;
                               return (
-                                <td key={col.id} className={`p-2 border-r text-center ${col.cellBg}`}>
+                                <td key={col.id} className={`p-2 border-r text-center relative group/cell ${col.cellBg}`}>
+                                  {renderCellCommentTrigger(cellKey, cat.label, col.label)}
                                   {col.isMirror || isGlobalView ? (
                                     <div className="flex flex-col items-center justify-center">
                                       <span className="font-black text-[11px] text-gray-800">
@@ -1846,8 +1935,8 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
                             })}
                           </tr>
 
-                          {/* Familles de la catégorie */}
-                          {matchingFamilies.map((fam: any) => {
+                          {/* Familles de la catégorie (uniquement si le détail n'est pas masqué, ex: other opex) */}
+                          {!isDetailHidden && matchingFamilies.map((fam: any) => {
                             const baseFamVal = getFamVal(fam, initialCol);
                             const expensesForFam = currentManualExpenses.filter(e => e.familyId === fam.id);
                             const hasExpenses = expensesForFam.length > 0;
@@ -1866,8 +1955,10 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
                                   {columns.map(col => {
                                     const val = getFamVal(fam, col);
                                     const rawVal = currentBudgetValues[col.prefix + fam.id];
+                                    const cellKey = `${col.id}_fam_${fam.id}`;
                                     return (
-                                      <td key={col.id} className={`p-1.5 border-r text-center ${col.cellBg}`}>
+                                      <td key={col.id} className={`p-1.5 border-r text-center relative group/cell ${col.cellBg}`}>
+                                        {renderCellCommentTrigger(cellKey, `${cat.label} > ${fam.label}`, col.label)}
                                         {col.isMirror || isGlobalView ? (
                                           <div className="flex flex-col items-center justify-center">
                                             <span className="font-bold text-[10.5px] text-gray-700">
@@ -1904,8 +1995,10 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
                                       {columns.map(col => {
                                         const val = getExpVal(exp, col);
                                         const rawVal = currentBudgetValues[col.prefix + exp.id];
+                                        const cellKey = `${col.id}_exp_${exp.id}`;
                                         return (
-                                          <td key={col.id} className={`p-1 border-r text-center ${col.cellBg}`}>
+                                          <td key={col.id} className={`p-1 border-r text-center relative group/cell ${col.cellBg}`}>
+                                            {renderCellCommentTrigger(cellKey, `${fam.label} > ${exp.label}`, col.label)}
                                             {col.isMirror || isGlobalView ? (
                                               <div className="flex flex-col items-center justify-center">
                                                 <span className="font-semibold text-[9.5px] text-gray-600">
@@ -1946,8 +2039,10 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
                       {columns.map(col => {
                         const val = getTotalExpensesVal(col);
                         const baseExpenses = getTotalExpensesVal(initialCol);
+                        const cellKey = `${col.id}_expenses_total`;
                         return (
-                          <td key={col.id} className={`p-2.5 border-r text-center ${col.cellBg}`}>
+                          <td key={col.id} className={`p-2.5 border-r text-center relative group/cell ${col.cellBg}`}>
+                            {renderCellCommentTrigger(cellKey, "Total Dépenses FY", col.label)}
                             <div className="flex flex-col items-center justify-center">
                               <span className="font-black text-[11px] text-gray-900">
                                 {formatCurrency(val)}
@@ -1967,8 +2062,10 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
                         </td>
                         {columns.map(col => {
                           const val = getEbitVal(col);
+                          const cellKey = `${col.id}_ebit`;
                           return (
-                            <td key={col.id} className="p-3 border-r text-center bg-navy text-yellow-accent">
+                            <td key={col.id} className="p-3 border-r text-center bg-navy text-yellow-accent relative group/cell">
+                              {renderCellCommentTrigger(cellKey, "EBIT FY", col.label)}
                               <div className="flex flex-col items-center justify-center">
                                 <span className="font-black text-[12px]">
                                   {formatCurrency(val)}
@@ -1989,8 +2086,10 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
                         </td>
                         {columns.map(col => {
                           const val = getMarginVal(col);
+                          const cellKey = `${col.id}_margin`;
                           return (
-                            <td key={col.id} className="p-2.5 border-r text-center bg-gray-800 text-yellow-accent">
+                            <td key={col.id} className="p-2.5 border-r text-center bg-gray-800 text-yellow-accent relative group/cell">
+                              {renderCellCommentTrigger(cellKey, "Marge EBIT (%)", col.label)}
                               <div className="flex flex-col items-center justify-center">
                                 <span className="font-black text-[11px]">
                                   {formatPercent(val)}
@@ -2027,6 +2126,105 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
              <p className="max-w-md text-right leading-relaxed italic font-normal text-gray-500 lowercase first-letter:uppercase">
                Le Trimestre 4 reflète automatiquement le réel du P&L (FY Total). Les reforecasts T1, T2 et T3 sont modifiables pour piloter les atterrissages.
              </p>
+          </div>
+        </div>
+      )}
+
+      {/* Modal d'édition de commentaire de cellule Budget */}
+      {activeBudgetCommentCell && (
+        <div 
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-navy/60 backdrop-blur-xs p-4 animate-in fade-in duration-150"
+          onClick={() => setActiveBudgetCommentCell(null)}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-150 flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="bg-navy p-4 text-white flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-xl bg-yellow-accent/20 flex items-center justify-center text-yellow-accent">
+                  <MessageSquare size={18} />
+                </div>
+                <div>
+                  <h4 className="font-black text-xs uppercase tracking-widest leading-tight">Commentaire cellule</h4>
+                  <div className="text-[10px] text-gray-300 font-bold flex items-center gap-1.5 mt-0.5">
+                    <span className="text-yellow-accent">{activeBudgetCommentCell.colLabel}</span>
+                    <span>•</span>
+                    <span className="truncate max-w-[220px]">{activeBudgetCommentCell.rowLabel}</span>
+                  </div>
+                </div>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setActiveBudgetCommentCell(null)}
+                className="text-gray-400 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-4 space-y-3 bg-white">
+              <div>
+                <label className="block text-[10px] font-black uppercase tracking-wider text-gray-500 mb-1.5">
+                  Note / Justification / Hypothèse
+                </label>
+                <textarea
+                  autoFocus
+                  rows={4}
+                  value={activeBudgetCommentCell.comment}
+                  onChange={(e) => setActiveBudgetCommentCell({ ...activeBudgetCommentCell, comment: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                      e.preventDefault();
+                      handleSaveCellComment(activeBudgetCommentCell.key, activeBudgetCommentCell.comment);
+                    } else if (e.key === 'Escape') {
+                      setActiveBudgetCommentCell(null);
+                    }
+                  }}
+                  placeholder="Ex : Hypothèse de révision budgétaire, renfort prestataire ou renégociation de contrat..."
+                  className="w-full border border-gray-300 rounded-xl p-3 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-all resize-none shadow-inner"
+                />
+              </div>
+              <div className="flex items-center justify-between text-[10px] text-gray-400 font-medium">
+                <span>Raccourci : <kbd className="px-1.5 py-0.5 bg-gray-100 border rounded font-mono text-[9px]">Ctrl+Entrée</kbd> pour valider</span>
+                <span>{activeBudgetCommentCell.comment.length} caractères</span>
+              </div>
+            </div>
+
+            {/* Footer actions */}
+            <div className="p-3.5 bg-gray-50 border-t flex items-center justify-between">
+              {getCellComment(activeBudgetCommentCell.key) ? (
+                <button
+                  type="button"
+                  onClick={() => handleSaveCellComment(activeBudgetCommentCell.key, '')}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-red-600 hover:bg-red-50 transition-colors"
+                >
+                  <Trash2 size={14} />
+                  <span>Supprimer</span>
+                </button>
+              ) : (
+                <div />
+              )}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveBudgetCommentCell(null)}
+                  className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-gray-600 hover:bg-gray-200 transition-colors"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSaveCellComment(activeBudgetCommentCell.key, activeBudgetCommentCell.comment)}
+                  className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-xs font-black bg-navy text-yellow-accent hover:bg-navy/90 shadow-md transition-all"
+                >
+                  <CheckCircle size={14} />
+                  <span>Enregistrer</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
