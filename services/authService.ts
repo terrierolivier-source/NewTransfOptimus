@@ -3,46 +3,14 @@ import { User, Role, Country } from '../types';
 
 const LOCAL_SESSION_KEY = 'optimus_local_session';
 
-const listeners: ((event: string, session: any) => void)[] = [];
-
-export const getStoredLocalSession = () => {
-  try {
-    const raw = localStorage.getItem(LOCAL_SESSION_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-};
-
-export const createLocalGuestSession = () => {
-  const guestId = 'local-guest-' + Math.random().toString(36).substring(2, 7);
-  const session = {
-    access_token: 'local-offline-token',
-    token_type: 'bearer',
-    user: {
-      id: guestId,
-      email: `${guestId}@local.app`,
-      app_metadata: { provider: 'anonymous' },
-      user_metadata: { full_name: 'Invité (Mode Local)' },
-      created_at: new Date().toISOString()
-    },
-    expires_at: Math.floor(Date.now() / 1000) + 86400 * 365
-  };
-  try {
-    localStorage.setItem(LOCAL_SESSION_KEY, JSON.stringify(session));
-  } catch (e) {
-    console.warn("Could not save local session to localStorage", e);
-  }
-  listeners.forEach(cb => {
-    try { cb('SIGNED_IN', session); } catch (e) {}
-  });
-  return session;
-};
+// Purge immédiate au chargement du module des fausses sessions locales résiduelles
+try {
+  localStorage.removeItem(LOCAL_SESSION_KEY);
+} catch {
+  // Ignorer si localStorage n'est pas disponible
+}
 
 export const getCurrentSession = async () => {
-  const local = getStoredLocalSession();
-  if (local) return local;
-
   try {
     const { data: { session }, error } = await supabase.auth.getSession();
     if (error) return null;
@@ -68,48 +36,41 @@ export const signInWithGoogle = async () => {
 };
 
 export const signOut = async () => {
-  localStorage.removeItem(LOCAL_SESSION_KEY);
+  try {
+    localStorage.removeItem(LOCAL_SESSION_KEY);
+  } catch {
+    // Ignorer si localStorage n'est pas disponible
+  }
   try {
     await supabase.auth.signOut();
   } catch (e) {
     console.warn("Supabase signOut error:", e);
   }
-  listeners.forEach(cb => {
-    try { cb('SIGNED_OUT', null); } catch (e) {}
-  });
 };
 
 export const signInAnonymously = async () => {
-  try {
-    const { data, error } = await supabase.auth.signInAnonymously();
-    if (error) throw error;
-    if (data?.session) {
-      return data;
-    }
-    const localSession = createLocalGuestSession();
-    return { session: localSession, user: localSession.user };
-  } catch (err: any) {
-    // Si Supabase est restreint par dépassement de quota (exceed_egress_quota / 402) ou hors-ligne
-    console.warn("Supabase indisponible ou restreint, activation transparente du mode invité local.", err?.message || err);
-    const localSession = createLocalGuestSession();
-    return { session: localSession, user: localSession.user };
+  const { data, error } = await supabase.auth.signInAnonymously();
+  if (error) {
+    throw new Error(error.message || "Échec de l'authentification anonyme Supabase.");
   }
+  if (!data?.session) {
+    throw new Error("Aucune session reçue de Supabase lors de la connexion anonyme.");
+  }
+  return data;
 };
 
 export const onAuthStateChange = (callback: (event: string, session: any) => void) => {
-  listeners.push(callback);
-
-  const local = getStoredLocalSession();
-  if (local) {
-    setTimeout(() => callback('INITIAL_SESSION', local), 0);
+  // Purge de la clé locale au démarrage de l'écouteur
+  try {
+    localStorage.removeItem(LOCAL_SESSION_KEY);
+  } catch {
+    // Ignorer si localStorage n'est pas disponible
   }
 
   let sub: any = null;
   try {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (!getStoredLocalSession()) {
-        callback(event, session);
-      }
+      callback(event, session);
     });
     sub = subscription;
   } catch (e) {
@@ -119,8 +80,6 @@ export const onAuthStateChange = (callback: (event: string, session: any) => voi
   return {
     unsubscribe: () => {
       if (sub?.unsubscribe) sub.unsubscribe();
-      const idx = listeners.indexOf(callback);
-      if (idx >= 0) listeners.splice(idx, 1);
     }
   };
 };

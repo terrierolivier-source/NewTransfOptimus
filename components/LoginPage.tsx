@@ -1,6 +1,6 @@
 import React from 'react';
 import { LogIn, Rocket, ShieldCheck, UserCircle, WifiOff } from 'lucide-react';
-import { signInWithGoogle, signInAnonymously, createLocalGuestSession } from '../services/authService';
+import { signInWithGoogle, signInAnonymously } from '../services/authService';
 
 interface LoginPageProps {
   error?: string | null;
@@ -28,8 +28,9 @@ const LoginPage: React.FC<LoginPageProps> = ({ error: externalError }) => {
     try {
       await signInAnonymously();
     } catch (err: any) {
-      console.warn("Mode invité distant non disponible, activation du mode local", err);
-      createLocalGuestSession();
+      console.warn("Mode invité distant non disponible", err);
+      const techError = err?.message || String(err);
+      setLocalError(`Connexion impossible pour le moment : aucune donnée ne sera enregistrée. Réessayez dans quelques minutes ou contactez l'administrateur. (${techError})`);
     } finally {
       setLoading(null);
     }
