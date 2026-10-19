@@ -76,6 +76,64 @@ const CATEGORIES_CONFIG = [
   { id: 'extra', label: 'CHARGES EXCEPTIONNELLES (sous EBIT)', icon: AlertTriangle }
 ];
 
+const ExpenseAmountInput: React.FC<{
+  disabled?: boolean;
+  value: number;
+  status: ExpenseStatus;
+  isAuto: boolean;
+  formatCurrency: (val: number) => string;
+  onCommit: (newVal: number) => void;
+}> = ({ disabled, value, status, isAuto, formatCurrency, onCommit }) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const [tempVal, setTempVal] = useState('');
+
+  const handleFocus = () => {
+    if (disabled) return;
+    setIsEditing(true);
+    setTempVal(value === 0 ? '' : String(value));
+  };
+
+  const handleBlur = () => {
+    setIsEditing(false);
+    const clean = tempVal.replace(/[^\d.-]/g, '');
+    const num = clean === '' ? 0 : parseFloat(clean);
+    onCommit(isNaN(num) ? 0 : num);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      (e.target as HTMLInputElement).blur();
+    } else if (e.key === 'Escape') {
+      setIsEditing(false);
+      setTempVal(value === 0 ? '' : String(value));
+    }
+  };
+
+  return (
+    <input
+      type="text"
+      disabled={disabled}
+      className={`w-full bg-transparent text-right text-[10px] font-bold focus:outline-none px-1 rounded transition-all ${
+        isEditing ? 'bg-white ring-2 ring-yellow-accent text-navy shadow-inner' : ''
+      } ${value < 0 ? 'text-emerald-600' : ''} ${
+        status === 'VALIDATED'
+          ? 'text-emerald-700'
+          : status === 'RECEIVED'
+          ? 'text-amber-700'
+          : status === 'FNP'
+          ? 'text-gray-700'
+          : ''
+      } ${isAuto ? 'text-blue-700 font-black' : ''}`}
+      value={isEditing ? tempVal : (value === 0 ? '- €' : formatCurrency(value))}
+      onFocus={handleFocus}
+      onChange={(e) => setTempVal(e.target.value)}
+      onBlur={handleBlur}
+      onKeyDown={handleKeyDown}
+      placeholder={isEditing ? '0' : ''}
+    />
+  );
+};
+
 const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) => {
   const [activeTab, setActiveTab] = useState<'billing' | 'expenses' | 'pl' | 'budget'>('billing');
   const [isBudgetEditMode, setIsBudgetEditMode] = useState(false);
@@ -303,6 +361,7 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
     return () => {
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
+        syncBudgetDataToCloud(stateRef.current).catch(console.error);
       }
     };
   }, [state.manualExpenses, state.budgetFamilies, state.budgetValues]);
@@ -770,12 +829,16 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
     setActivePoMissionId(null);
   };
 
-  const handleUpdateExpenseAmount = (id: string, monthId: number, value: string) => {
+  const handleUpdateExpenseAmount = (id: string, monthId: number, value: string | number) => {
     if (isGlobalView) return;
     const countryKey = globalCountry as string;
-    const cleanValue = value.replace(/[^\d-]/g, '');
-    if (cleanValue === '-' || cleanValue === '') return;
-    const amount = parseFloat(cleanValue) || 0;
+    let amount = 0;
+    if (typeof value === 'number') {
+      amount = isNaN(value) ? 0 : value;
+    } else {
+      const cleanValue = value.replace(/[^\d.-]/g, '');
+      amount = cleanValue === '' ? 0 : (parseFloat(cleanValue) || 0);
+    }
     
     const bucket = manualExpenses[globalFY]?.[countryKey] || [];
     const existingIdx = bucket.findIndex(e => e.id === id);
@@ -791,7 +854,7 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
       if (expenseToFind) {
         nextBucket.push({ 
           ...expenseToFind, 
-          monthlyAmounts: { [monthId]: amount } 
+          monthlyAmounts: { ...(expenseToFind.monthlyAmounts || {}), [monthId]: amount } 
         });
       }
     }
@@ -824,8 +887,8 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
       if (expenseToFind) {
         nextBucket.push({ 
           ...expenseToFind, 
-          monthlyAmounts: {}, 
-          monthlyStatuses: { [monthId]: nextStatus } 
+          monthlyAmounts: { ...(expenseToFind.monthlyAmounts || {}) }, 
+          monthlyStatuses: { ...(expenseToFind.monthlyStatuses || {}), [monthId]: nextStatus } 
         });
       }
     }
@@ -1393,14 +1456,15 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
                                                 <MessageSquare size={14} fill={comment ? "currentColor" : "none"} strokeWidth={comment ? 1.5 : 2.5} />
                                               </button>
                                             )}
-                                            <input 
-                                              type="text" 
-                                              disabled={isGlobalView} 
-                                              className={`w-full bg-transparent text-right text-[10px] font-bold focus:outline-none px-1 ${val < 0 ? 'text-emerald-600' : ''} ${status === 'VALIDATED' ? 'text-emerald-700' : status === 'RECEIVED' ? 'text-amber-700' : status === 'FNP' ? 'text-gray-700' : ''} ${isAuto ? 'text-blue-700 font-black' : ''}`} 
-                                              value={val === 0 ? '- €' : formatCurrency(val)} 
-                                              onChange={(e) => handleUpdateExpenseAmount(exp.id, m.id, e.target.value)} 
+                                            <ExpenseAmountInput 
+                                              disabled={isGlobalView}
+                                              value={val}
+                                              status={status}
+                                              isAuto={isAuto}
+                                              formatCurrency={formatCurrency}
+                                              onCommit={(newAmount) => handleUpdateExpenseAmount(exp.id, m.id, newAmount)}
                                             />
-                                            {!isGlobalView && (isAuto || val !== 0) && (
+                                            {!isGlobalView && (
                                               <button 
                                                 onClick={() => handleToggleExpenseStatus(exp.id, m.id)}
                                                 className={`ml-1.5 p-0.5 rounded transition-all flex items-center justify-center shrink-0 ${status !== 'NONE' ? 'opacity-100' : 'opacity-0 group-hover/cell:opacity-100'}`}

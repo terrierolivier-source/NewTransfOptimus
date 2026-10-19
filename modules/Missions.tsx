@@ -73,6 +73,23 @@ const COUNTRY_FLAGS: Record<string, string> = {
   [Country.ITALY]: '🇮🇹',
 };
 
+const MONTHS = [
+  { id: 1, label: 'Fév' },
+  { id: 2, label: 'Mar' },
+  { id: 3, label: 'Avr' },
+  { id: 4, label: 'Mai' },
+  { id: 5, label: 'Juin' },
+  { id: 6, label: 'Juil' },
+  { id: 7, label: 'Août' },
+  { id: 8, label: 'Sep' },
+  { id: 9, label: 'Oct' },
+  { id: 10, label: 'Nov' },
+  { id: 11, label: 'Déc' },
+  { id: 0, label: 'Jan' },
+];
+
+const formatCurrency = (val: number) => new Intl.NumberFormat('de-DE', { maximumFractionDigits: 0 }).format(Math.round(val)) + ' €';
+
 const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
   const [editingMission, setEditingMission] = useState<Partial<Mission> | null>(null);
   const [internalStaffing, setInternalStaffing] = useState<InternalStaffing[]>([]);
@@ -223,14 +240,129 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
   }, [editingMission?.id]);
 
   /**
+   * Récupère et calcule les métriques d'un freelance ou sous-traitant basées directement sur "Dépenses"
+   * (Suivi Budgétaire -> onglet Dépenses / CONTRACTORS).
+   * Règle stricte :
+   * - Factures validées : montants réels validés pris en compte (quel que soit le mois).
+   * - Factures pas encore validées :
+   *   - Si mois futur ou en cours : montants prévisionnels pris en compte.
+   *   - Si mois passé : 0 € (facture non validée sur un mois révolu).
+   */
+  const getContractorExpenseMetrics = (
+    resType: 'f' | 's',
+    row: { id: string; startDate: string; endDate: string; amount?: number; cjm?: number; percentage?: number },
+    mission: Partial<Mission>
+  ) => {
+    const missionId = mission.id;
+    const autoId = `auto-${resType}-${row.id}-${missionId}`;
+    const start = parseISO(row.startDate);
+    const end = parseISO(row.endDate);
+    const today = new Date();
+    const todayStart = startOfMonth(today);
+
+    // Recherche de l'expense enregistrée dans state.manualExpenses (tous FY et pays confondus)
+    let storedExp: ManualExpense | undefined;
+    if (state.manualExpenses) {
+      for (const fyKey of Object.keys(state.manualExpenses)) {
+        const byCountry = state.manualExpenses[fyKey] || {};
+        for (const cKey of Object.keys(byCountry)) {
+          const exp = (byCountry[cKey] || []).find((e: ManualExpense) => {
+            if (e.id === autoId) return true;
+            if (e.id.startsWith(`auto-${resType}-`) && e.id.includes(row.id) && e.id.includes(missionId || '')) return true;
+            return false;
+          });
+          if (exp) {
+            storedExp = exp;
+            break;
+          }
+        }
+        if (storedExp) break;
+      }
+    }
+
+    // Calcul des montants automatiques de base (autoDefaults de Suivi Budgétaire)
+    const fyYear = parseInt((state.globalFY || 'FY2026').replace('FY', '')) || today.getFullYear();
+    const defaultMonthlyAmounts: Record<number, number> = {};
+
+    if (isValid(start) && isValid(end)) {
+      if (resType === 'f') {
+        const cjm = row.cjm || 500;
+        const percentage = row.percentage || 100;
+        MONTHS.forEach(m => {
+          const monthStart = startOfMonth(new Date(m.id === 0 ? fyYear + 1 : fyYear, m.id, 1));
+          const monthEnd = endOfMonth(monthStart);
+          const overlapStart = start > monthStart ? start : monthStart;
+          const overlapEnd = end < monthEnd ? end : monthEnd;
+          if (overlapStart <= overlapEnd) {
+            const bDays = getBusinessDays(overlapStart, overlapEnd, state.holidays, (mission.country as Country) || Country.FRANCE);
+            if (bDays.length > 0) {
+              defaultMonthlyAmounts[m.id] = bDays.length * cjm * (percentage / 100);
+            }
+          }
+        });
+      } else {
+        const totalAmount = row.amount || 0;
+        const totalDays = Math.max(1, differenceInDays(end, start) + 1);
+        const dailyRate = totalAmount / totalDays;
+        MONTHS.forEach(m => {
+          const monthStart = startOfMonth(new Date(m.id === 0 ? fyYear + 1 : fyYear, m.id, 1));
+          const monthEnd = endOfMonth(monthStart);
+          const overlapStart = start > monthStart ? start : monthStart;
+          const overlapEnd = end < monthEnd ? end : monthEnd;
+          if (overlapStart <= overlapEnd) {
+            const overlapDays = differenceInDays(overlapEnd, overlapStart) + 1;
+            defaultMonthlyAmounts[m.id] = overlapDays * dailyRate;
+          }
+        });
+      }
+    }
+
+    // Tous les mois concernés (mois avec montant saisi, mois avec statut, ou mois avec autoDefault)
+    const monthIds = new Set<number>([
+      ...Object.keys(storedExp?.monthlyAmounts || {}).map(Number),
+      ...Object.keys(storedExp?.monthlyStatuses || {}).map(Number),
+      ...Object.keys(defaultMonthlyAmounts).map(Number)
+    ]);
+
+    let totalReal = 0; // Seules les données "validé finance" (pastille verte) sont considérées comme du réel
+    let totalPrev = 0; // FNP, Facture parvenue ou juste entrée brute sont considérées comme du prévisionnel
+
+    monthIds.forEach(mId => {
+      const manualVal = storedExp?.monthlyAmounts?.[mId];
+      // Si une valeur a été saisie dans Dépenses (même 0 €), on prend manualVal, sinon le calcul auto
+      const val = manualVal !== undefined ? Number(manualVal) : (defaultMonthlyAmounts[mId] || 0);
+      const status = storedExp?.monthlyStatuses?.[mId] || 'NONE';
+      const isValidated = status === 'VALIDATED';
+
+      if (isValidated) {
+        // Seules les données "validé finance" (pastille verte) sont du réel
+        totalReal += val;
+      } else {
+        // FNP, Facture parvenue ou juste entrée brute = prévisionnel
+        totalPrev += val;
+      }
+    });
+
+    const totalRealPlusPrev = totalReal + totalPrev;
+
+    return {
+      totalReal: Math.round(totalReal),
+      totalPrev: Math.round(totalPrev),
+      totalRealPlusPrev: Math.round(totalRealPlusPrev),
+      totalForecast: Math.round(resType === 's' ? (row.amount || totalRealPlusPrev) : totalRealPlusPrev)
+    };
+  };
+
+  /**
    * Calcule les métriques de mission.
    */
   const calculateMissionMetrics = (mission: Partial<Mission>, internals: InternalStaffing[], freelances: ExternalFreelance[], subs: ExternalSubcontractor[], forceForecast: boolean = false) => {
     let totalProdCost = 0;
+    let totalProdReal = 0;
+    let totalProdPrev = 0;
     const missionId = mission.id;
-    if (!missionId) return { prodCost: 0, marginAmount: 0, marginPercent: 0, revenue: 0 };
+    if (!missionId) return { prodCost: 0, prodCostReal: 0, prodCostPrev: 0, marginAmount: 0, marginPercent: 0, revenue: 0 };
     
-    const countryKey = mission.country as string;
     const missionTimesheets = state.timesheets.filter(t => t.missionId === missionId && t.status === TimesheetStatus.VALIDE);
 
     // 1. COÛTS INTERNES
@@ -245,8 +377,10 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
       if (!forceForecast) {
         // Logique "Réelle + Prév" : On somme les timesheets validées
         const userReal = missionTimesheets.filter(t => t.userId === row.userId);
+        let rowReal = 0;
+        let rowPrev = 0;
         if (userReal.length > 0) {
-          totalProdCost += (userReal.reduce((acc, t) => acc + t.percentage, 0) / 100) * cjm;
+          rowReal = (userReal.reduce((acc, t) => acc + t.percentage, 0) / 100) * cjm;
         }
         // Et on ajoute le prévisionnel pour les semaines qui n'ont pas encore de saisie validée
         try {
@@ -259,79 +393,37 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
               const overlapEnd = wEnd > end ? end : wEnd;
               if (overlapStart <= overlapEnd) {
                 const bDays = getBusinessDays(overlapStart, overlapEnd, state.holidays, mission.country!);
-                totalProdCost += bDays.length * (row.percentage / 100) * cjm;
+                rowPrev += bDays.length * (row.percentage / 100) * cjm;
               }
             }
           });
         } catch(e) {}
+        totalProdCost += (rowReal + rowPrev);
+        totalProdReal += rowReal;
+        totalProdPrev += rowPrev;
       } else {
         // Logique "Prévisionnelle" pure
         const bDays = getBusinessDays(start, end, state.holidays, mission.country!);
-        totalProdCost += bDays.length * (row.percentage / 100) * cjm;
+        const cost = bDays.length * (row.percentage / 100) * cjm;
+        totalProdCost += cost;
+        totalProdPrev += cost;
       }
     });
 
     // 2. COÛTS FREELANCES
     freelances.forEach(row => {
-      const autoId = `auto-f-${row.id}-${missionId}`;
-      const start = parseISO(row.startDate);
-      const end = parseISO(row.endDate);
-      if (!isValid(start) || !isValid(end)) return;
-
-      const monthsOfProject = eachMonthOfInterval({ start, end });
-      monthsOfProject.forEach(mDate => {
-        const monthId = mDate.getMonth();
-        const fy = getFiscalYear(mDate);
-        
-        // On récupère l'override budgétaire (onglet Suivi Dépenses)
-        const manualExpense = state.manualExpenses[fy]?.[countryKey]?.find(e => e.id === autoId);
-        const overrideAmount = manualExpense?.monthlyAmounts?.[monthId];
-
-        if (!forceForecast && overrideAmount !== undefined) {
-          totalProdCost += Number(overrideAmount);
-        } else {
-          // Calcul au prorata jours ouvrés
-          const mStart = startOfMonth(mDate);
-          const mEnd = endOfMonth(mDate);
-          const overlapStart = mStart < start ? start : mStart;
-          const overlapEnd = mEnd > end ? end : mEnd;
-          if (overlapStart <= overlapEnd) {
-            const bDays = getBusinessDays(overlapStart, overlapEnd, state.holidays, mission.country!);
-            totalProdCost += bDays.length * (row.percentage / 100) * row.cjm;
-          }
-        }
-      });
+      const metrics = getContractorExpenseMetrics('f', row, mission);
+      totalProdCost += forceForecast ? metrics.totalForecast : metrics.totalRealPlusPrev;
+      totalProdReal += metrics.totalReal;
+      totalProdPrev += metrics.totalPrev;
     });
 
     // 3. COÛTS SOUS-TRAITANTS
     subs.forEach(row => {
-      const autoId = `auto-s-${row.id}-${missionId}`;
-      const start = parseISO(row.startDate);
-      const end = parseISO(row.endDate);
-      if (!isValid(start) || !isValid(end)) return;
-
-      const monthsOfProject = eachMonthOfInterval({ start, end });
-      monthsOfProject.forEach(mDate => {
-        const monthId = mDate.getMonth();
-        const fy = getFiscalYear(mDate);
-        const manualExpense = state.manualExpenses[fy]?.[countryKey]?.find(e => e.id === autoId);
-        const overrideAmount = manualExpense?.monthlyAmounts?.[monthId];
-
-        if (!forceForecast && overrideAmount !== undefined) {
-          totalProdCost += Number(overrideAmount);
-        } else {
-          const totalDays = Math.max(1, differenceInDays(end, start) + 1);
-          const dailyRate = row.amount / totalDays;
-          const mStart = startOfMonth(mDate);
-          const mEnd = endOfMonth(mDate);
-          const overlapStart = mStart < start ? start : mStart;
-          const overlapEnd = mEnd > end ? end : mEnd;
-          if (overlapStart <= overlapEnd) {
-            const overlapDays = differenceInDays(overlapEnd, overlapStart) + 1;
-            totalProdCost += overlapDays * dailyRate;
-          }
-        }
-      });
+      const metrics = getContractorExpenseMetrics('s', row, mission);
+      totalProdCost += forceForecast ? metrics.totalForecast : metrics.totalRealPlusPrev;
+      totalProdReal += metrics.totalReal;
+      totalProdPrev += metrics.totalPrev;
     });
 
     const revenue = calculateTotalMissionRevenue(mission as Mission);
@@ -339,16 +431,23 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
     const marginAmount = revenue - totalProdCost;
     const marginPercent = revenue > 0 ? (marginAmount / revenue) * 100 : 0;
 
-    return { prodCost: Math.round(totalProdCost), marginAmount: Math.round(marginAmount), marginPercent, revenue };
+    return { 
+      prodCost: Math.round(totalProdCost), 
+      prodCostReal: Math.round(totalProdReal), 
+      prodCostPrev: Math.round(totalProdPrev), 
+      marginAmount: Math.round(marginAmount), 
+      marginPercent, 
+      revenue 
+    };
   };
 
   const currentMetrics = useMemo(() => {
-    if (!editingMission) return { prodCost: 0, marginAmount: 0, marginPercent: 0, revenue: 0 };
+    if (!editingMission) return { prodCost: 0, prodCostReal: 0, prodCostPrev: 0, marginAmount: 0, marginPercent: 0, revenue: 0 };
     return calculateMissionMetrics(editingMission, internalStaffing, freelanceStaffing, subcontractorStaffing, false);
   }, [editingMission, internalStaffing, freelanceStaffing, subcontractorStaffing, state.holidays, state.timesheets, state.manualExpenses]);
 
   const forecastMetrics = useMemo(() => {
-    if (!editingMission) return { prodCost: 0, marginAmount: 0, marginPercent: 0, revenue: 0 };
+    if (!editingMission) return { prodCost: 0, prodCostReal: 0, prodCostPrev: 0, marginAmount: 0, marginPercent: 0, revenue: 0 };
     return calculateMissionMetrics(editingMission, internalStaffing, freelanceStaffing, subcontractorStaffing, true);
   }, [editingMission, internalStaffing, freelanceStaffing, subcontractorStaffing, state.holidays]);
 
@@ -571,7 +670,6 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
     return processedMissions.reduce((acc, m) => acc + calculateSmoothedMissionRevenue(m, nextFY), 0);
   }, [processedMissions, actualYear]);
 
-  const formatCurrency = (val: number) => new Intl.NumberFormat('de-DE', { maximumFractionDigits: 0 }).format(Math.round(val)) + ' €';
   const toggleSort = (key: MissionSortKey) => setMissionSortConfig(prev => ({ key, direction: prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc' }));
 
   const handleRemoveStaffingRow = (e: React.MouseEvent, type: 'internal' | 'freelance' | 'subcontractor', id: string) => {
@@ -662,7 +760,7 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
             </thead>
             <tbody className="divide-y">
               {processedMissions.map(m => {
-                 const { marginPercent, prodCost, marginAmount } = calculateMissionMetrics(m, m.internalStaffing || [], m.freelanceStaffing || [], m.subcontractorStaffing || [], false);
+                 const { marginPercent, prodCost, prodCostReal, prodCostPrev, marginAmount } = calculateMissionMetrics(m, m.internalStaffing || [], m.freelanceStaffing || [], m.subcontractorStaffing || [], false);
                  return (
                   <tr key={m.id} onClick={() => setEditingMission(m)} className="text-sm hover:bg-gray-50 transition-colors border-b last:border-0 group cursor-pointer">
                     <td className="p-4 border-b group-last:border-0">
@@ -698,7 +796,17 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
                     <td className="p-4 border-b group-last:border-0 font-black text-navy text-sm whitespace-nowrap">
                         <div className="flex flex-col">
                           <span>{formatCurrency(prodCost)}</span>
-                          <span className="text-[8px] text-gray-400 uppercase font-bold tracking-tight">Réel + Prév.</span>
+                          <div className="flex items-center gap-1.5 mt-0.5 text-[8px] font-bold">
+                            <span className="text-emerald-700 flex items-center gap-0.5" title="Réel validé en finance">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+                              {formatCurrency(prodCostReal)}
+                            </span>
+                            <span className="text-gray-300">|</span>
+                            <span className="text-amber-700 flex items-center gap-0.5" title="Prévisionnel (FNP / parvenu / planifié)">
+                              <span className="w-1.5 h-1.5 rounded-full border border-gray-400 bg-white inline-block" />
+                              {formatCurrency(prodCostPrev)}
+                            </span>
+                          </div>
                         </div>
                     </td>
                     <td className={`p-4 border-b group-last:border-0 font-black text-sm whitespace-nowrap ${marginAmount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
@@ -888,10 +996,21 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-xl border border-yellow-200 shadow-sm">
-                          <Coins size={14} className="text-yellow-600" />
-                          <div className="flex flex-col overflow-hidden">
+                          <Coins size={14} className="text-yellow-600 shrink-0" />
+                          <div className="flex flex-col overflow-hidden min-w-0">
                             <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">Prod. (Réelle + Prev.) :</span>
                             <span className="text-xs font-black text-navy truncate">{formatCurrency(currentMetrics.prodCost)}</span>
+                            <div className="flex items-center gap-2 mt-1 text-[8px] font-bold">
+                              <span className="flex items-center gap-1 text-emerald-700">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+                                Réel: {formatCurrency(currentMetrics.prodCostReal)}
+                              </span>
+                              <span className="text-gray-300">|</span>
+                              <span className="flex items-center gap-1 text-amber-700">
+                                <span className="w-1.5 h-1.5 rounded-full border border-gray-400 bg-white inline-block" />
+                                Prév: {formatCurrency(currentMetrics.prodCostPrev)}
+                              </span>
+                            </div>
                           </div>
                       </div>
                       <div className={`flex items-center gap-3 px-4 py-2 rounded-xl border shadow-sm transition-all duration-300 ${currentMetrics.marginPercent >= 15 ? 'bg-green-100 border-green-200 text-green-700' : currentMetrics.marginPercent > 0 ? 'bg-orange-100 border-orange-200 text-orange-700' : 'bg-red-100 border-red-200 text-red-700'}`}>
@@ -1084,17 +1203,44 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
                           </div>
                         </div>
 
-                        {/* ETP Days stats */}
-                        <div className="pt-3.5 border-t border-orange-100/30 grid grid-cols-2 gap-2 text-center">
-                          <div className="bg-slate-50/70 rounded-xl p-2 border border-slate-100/50 flex flex-col justify-center items-center shadow-inner">
-                            <span className="block text-[8px] font-black text-gray-400 uppercase tracking-widest leading-normal">Prév. (ETP)</span>
-                            <span className="text-xs font-black text-navy">{etp.forecast} {etp.forecast > 1 ? 'jours' : 'jour'}</span>
-                          </div>
-                          <div className="bg-emerald-50/40 rounded-xl p-2 border border-emerald-100/30 flex flex-col justify-center items-center shadow-inner">
-                            <span className="block text-[8px] font-black text-emerald-600 uppercase tracking-widest leading-normal">Réel (ETP)</span>
-                            <span className="text-xs font-black text-emerald-700">{etp.actual} {etp.actual > 1 ? 'jours' : 'jour'}</span>
-                          </div>
-                        </div>
+                        {/* ETP & Coûts Réel vs Prév (Dépenses) */}
+                        {(() => {
+                          const freeMetrics = getContractorExpenseMetrics('f', row, editingMission!);
+                          return (
+                            <div className="pt-3.5 border-t border-orange-100/30 space-y-2">
+                              <div className="grid grid-cols-2 gap-2 text-center">
+                                <div className="bg-slate-50/70 rounded-xl p-1.5 border border-slate-100/50 flex flex-col justify-center items-center shadow-inner">
+                                  <span className="block text-[7px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">Prév. (ETP)</span>
+                                  <span className="text-[11px] font-black text-navy">{etp.forecast} {etp.forecast > 1 ? 'j' : 'j'}</span>
+                                </div>
+                                <div className="bg-emerald-50/40 rounded-xl p-1.5 border border-emerald-100/30 flex flex-col justify-center items-center shadow-inner">
+                                  <span className="block text-[7px] font-black text-emerald-600 uppercase tracking-widest leading-none mb-1">Réel (ETP)</span>
+                                  <span className="text-[11px] font-black text-emerald-700">{etp.actual} {etp.actual > 1 ? 'j' : 'j'}</span>
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-2 gap-2 text-center">
+                                <div className={`rounded-xl p-1.5 border flex flex-col justify-center items-center shadow-inner ${freeMetrics.totalReal > 0 ? 'bg-emerald-50 border-emerald-300' : 'bg-slate-50 border-slate-100'}`}>
+                                  <div className="flex items-center gap-1 mb-0.5">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 border border-emerald-600 shadow-sm" />
+                                    <span className="block text-[7px] font-black text-emerald-800 uppercase tracking-widest leading-none">Réel (Validé)</span>
+                                  </div>
+                                  <span className="text-[11px] font-black text-emerald-900">{formatCurrency(freeMetrics.totalReal)}</span>
+                                </div>
+                                <div className={`rounded-xl p-1.5 border flex flex-col justify-center items-center shadow-inner ${freeMetrics.totalPrev > 0 ? 'bg-amber-50/60 border-amber-200' : 'bg-slate-50 border-slate-100'}`}>
+                                  <div className="flex items-center gap-1 mb-0.5">
+                                    <div className="w-1.5 h-1.5 rounded-full border border-gray-400 bg-white shadow-sm" />
+                                    <span className="block text-[7px] font-black text-amber-800 uppercase tracking-widest leading-none">Prévisionnel</span>
+                                  </div>
+                                  <span className="text-[11px] font-black text-navy">{formatCurrency(freeMetrics.totalPrev)}</span>
+                                </div>
+                              </div>
+                              <div className="bg-orange-50/60 rounded-xl p-1.5 border border-orange-100 flex items-center justify-between text-center px-3 shadow-inner">
+                                <span className="text-[7px] font-black uppercase text-orange-900 tracking-wider">Total Réel + Prév :</span>
+                                <span className="text-[11px] font-black text-orange-950">{formatCurrency(freeMetrics.totalRealPlusPrev)}</span>
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                   );
@@ -1110,7 +1256,6 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
                 </div>
                 <div className="flex gap-4 overflow-x-auto pb-6 snap-x no-scrollbar">
                   {subcontractorStaffing.map((row) => {
-                    const etp = getETPDays(row, row.id);
                     return (
                       <div key={row.id} className="w-[300px] shrink-0 p-5 border border-purple-100/50 rounded-2xl bg-purple-50/5 shadow-md relative group snap-start animate-in zoom-in duration-300">
                         <button type="button" onClick={(e) => handleRemoveStaffingRow(e, 'subcontractor', row.id)} className="absolute top-3 right-3 p-1.5 bg-red-50 text-red-500 hover:bg-red-600 hover:text-white rounded-full transition-all z-20 opacity-0 group-hover:opacity-100"><Trash2 size={14} /></button>
@@ -1148,17 +1293,34 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
                           </div>
                         </div>
 
-                        {/* ETP Days stats */}
-                        <div className="pt-3.5 border-t border-purple-100/30 grid grid-cols-2 gap-2 text-center">
-                          <div className="bg-slate-50/70 rounded-xl p-2 border border-slate-100/50 flex flex-col justify-center items-center shadow-inner">
-                            <span className="block text-[8px] font-black text-gray-400 uppercase tracking-widest leading-normal">Prév. (ETP)</span>
-                            <span className="text-xs font-black text-navy">{etp.forecast} {etp.forecast > 1 ? 'jours' : 'jour'}</span>
-                          </div>
-                          <div className="bg-emerald-50/40 rounded-xl p-2 border border-emerald-100/30 flex flex-col justify-center items-center shadow-inner">
-                            <span className="block text-[8px] font-black text-emerald-600 uppercase tracking-widest leading-normal">Réel (ETP)</span>
-                            <span className="text-xs font-black text-emerald-700">{etp.actual} {etp.actual > 1 ? 'jours' : 'jour'}</span>
-                          </div>
-                        </div>
+                        {/* Coûts Réel vs Prév (Dépenses) */}
+                        {(() => {
+                          const subMetrics = getContractorExpenseMetrics('s', row, editingMission!);
+                          return (
+                            <div className="pt-3.5 border-t border-purple-100/30 space-y-2">
+                              <div className="grid grid-cols-2 gap-2 text-center">
+                                <div className={`rounded-xl p-2 border flex flex-col justify-center items-center shadow-inner ${subMetrics.totalReal > 0 ? 'bg-emerald-50 border-emerald-300' : 'bg-slate-50 border-slate-100'}`}>
+                                  <div className="flex items-center gap-1 mb-1">
+                                    <div className="w-2 h-2 rounded-full bg-emerald-500 border border-emerald-600 shadow-sm" />
+                                    <span className="block text-[8px] font-black text-emerald-800 uppercase tracking-widest leading-none">Réel (Validé)</span>
+                                  </div>
+                                  <span className="text-xs font-black text-emerald-900">{formatCurrency(subMetrics.totalReal)}</span>
+                                </div>
+                                <div className={`rounded-xl p-2 border flex flex-col justify-center items-center shadow-inner ${subMetrics.totalPrev > 0 ? 'bg-amber-50/60 border-amber-200' : 'bg-slate-50 border-slate-100'}`}>
+                                  <div className="flex items-center gap-1 mb-1">
+                                    <div className="w-2 h-2 rounded-full border border-gray-400 bg-white shadow-sm" />
+                                    <span className="block text-[8px] font-black text-amber-800 uppercase tracking-widest leading-none">Prévisionnel</span>
+                                  </div>
+                                  <span className="text-xs font-black text-navy">{formatCurrency(subMetrics.totalPrev)}</span>
+                                </div>
+                              </div>
+                              <div className="bg-purple-50/60 rounded-xl p-2 border border-purple-100 flex items-center justify-between text-center px-3 shadow-inner">
+                                <span className="text-[8px] font-black uppercase text-purple-900 tracking-wider">Total Réel + Prév :</span>
+                                <span className="text-xs font-black text-purple-950">{formatCurrency(subMetrics.totalRealPlusPrev)}</span>
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                   );
