@@ -1081,6 +1081,7 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
   const BILLING_COL1_WIDTH = isMobile ? 160 : 420;
   const BILLING_COL2_WIDTH = isMobile ? 90 : 110;
   const EXPENSE_COL1_WIDTH = isMobile ? 200 : 650;
+  const EXPENSE_COL2_WIDTH = isMobile ? 90 : 120;
 
   return (
     <div className="space-y-6 max-w-[1600px] mx-auto">
@@ -1321,8 +1322,10 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
                       <span>Catégorie / Famille / Libellé</span>
                     </div>
                   </th>
+                  <th style={{ width: EXPENSE_COL2_WIDTH, minWidth: EXPENSE_COL2_WIDTH, left: EXPENSE_COL1_WIDTH }} className="p-4 border-b border-r bg-gray-100 text-navy font-black sticky z-[60] text-center shadow-[4px_0_10px_-2px_rgba(0,0,0,0.15)]">
+                    Total FY
+                  </th>
                   {MONTHS.map(m => <th key={m.id} className="p-4 border-b text-center min-w-[110px] bg-white">{m.label}</th>)}
-                  <th className="p-4 border-b border-l text-center bg-gray-50 min-w-[120px]">Total FY</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
@@ -1372,12 +1375,14 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
                             <div className="flex items-center gap-3"><cat.icon size={16} className="text-yellow-accent" /> <span className="truncate">{cat.label}</span></div>
                             {!isGlobalView && !isMobile && <button type="button" onClick={() => handleAddFamily(cat.id)} className="p-1 hover:bg-white hover:text-navy rounded-md transition-all flex items-center gap-1.5 px-3 border border-white/20 bg-white/10 shadow-sm"><Layers size={10} strokeWidth={4} /> <span className="text-[8px] font-black uppercase">Famille</span></button>}
                           </td>
+                          <td style={{ width: EXPENSE_COL2_WIDTH, minWidth: EXPENSE_COL2_WIDTH, left: EXPENSE_COL1_WIDTH }} className="p-4 border-r text-center font-black text-[10px] bg-navy text-yellow-accent sticky z-30 shadow-[4px_0_10px_-2px_rgba(0,0,0,0.15)]">
+                            {formatCurrency(calculateCategoryTotals(cat.id).reduce((a, b) => a + b, 0))}
+                          </td>
                           {calculateCategoryTotals(cat.id).map((v, i) => (
                             <td key={i} className={`p-4 text-center font-black text-[10px] bg-navy ${v < 0 ? 'text-emerald-400' : 'text-white'}`}>
                               {formatCurrency(v)}
                             </td>
                           ))}
-                          <td className="p-4 border-l text-center font-black text-[10px] bg-navy text-yellow-accent">{formatCurrency(calculateCategoryTotals(cat.id).reduce((a, b) => a + b, 0))}</td>
                         </tr>
                         {filteredFamilies.map(fam => {
                           const famMatchesQuery = !query || catMatchesQuery || fam.label.toLowerCase().includes(query);
@@ -1389,8 +1394,8 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
 
                           return (
                             <React.Fragment key={fam.id}>
-                              <tr className="bg-gray-100/90 border-y">
-                                <td className="py-2.5 pl-10 pr-4 border-r sticky left-0 z-30 bg-gray-100 flex items-center justify-between shadow-sm w-[650px]">
+                              <tr className="bg-gray-100 border-y">
+                                <td style={{ width: EXPENSE_COL1_WIDTH, minWidth: EXPENSE_COL1_WIDTH }} className="py-2.5 pl-10 pr-4 border-r sticky left-0 z-30 bg-gray-100 flex items-center justify-between shadow-sm">
                                   <input type="text" disabled={isGlobalView} className="bg-transparent font-black text-navy text-[10px] uppercase focus:outline-none flex-1 whitespace-normal break-words" value={fam.label} onChange={(e) => handleUpdateFamilyLabel(fam.id, e.target.value)} />
                                   {!isGlobalView && (
                                     <div className="flex items-center gap-2">
@@ -1398,19 +1403,22 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
                                     </div>
                                   )}
                                 </td>
+                                <td style={{ width: EXPENSE_COL2_WIDTH, minWidth: EXPENSE_COL2_WIDTH, left: EXPENSE_COL1_WIDTH }} className="p-2 border-r text-center font-black text-navy/70 text-[9px] bg-gray-100 sticky z-30 shadow-[4px_0_10px_-2px_rgba(0,0,0,0.15)]">
+                                  {formatCurrency(calculateFamilyTotals(fam.id).reduce((a, b) => a + b, 0))}
+                                </td>
                                 {calculateFamilyTotals(fam.id).map((v, i) => (
                                   <td key={i} className={`p-2 text-center font-bold text-[9px] bg-gray-50/50 ${v < 0 ? 'text-emerald-600' : 'text-navy/40'}`}>
                                     {v !== 0 ? formatCurrency(v) : '-'}
                                   </td>
                                 ))}
-                                <td className="p-2 border-l text-center font-black text-navy/60 text-[9px] bg-gray-100/50">{formatCurrency(calculateFamilyTotals(fam.id).reduce((a, b) => a + b, 0))}</td>
                               </tr>
                               {filteredExpenses.map(exp => {
                                 const isAuto = exp.id.startsWith('auto-');
                                 const isPointed = pointedExpenses.has(exp.id);
+                                const expTotal = (Object.values(exp.monthlyAmounts || {}) as number[]).reduce((a: number, b: number) => a + b, 0);
                                 return (
-                                  <tr key={exp.id} className={`group transition-colors ${isPointed ? 'bg-amber-100/60 font-semibold' : 'hover:bg-navy/[0.03]'} ${isAuto ? 'italic' : ''}`}>
-                                    <td className={`py-2 pl-20 pr-4 border-r sticky left-0 z-30 transition-colors shadow-sm w-[650px] flex items-center justify-between relative animate-fade-in ${isPointed ? 'bg-amber-50/95 group-hover:bg-amber-100/70' : 'bg-white group-hover:bg-slate-50'}`}>
+                                  <tr key={exp.id} className={`group transition-colors ${isPointed ? 'bg-amber-100 font-semibold' : 'bg-white hover:bg-slate-50'} ${isAuto ? 'italic' : ''}`}>
+                                    <td style={{ width: EXPENSE_COL1_WIDTH, minWidth: EXPENSE_COL1_WIDTH }} className={`py-2 pl-20 pr-4 border-r sticky left-0 z-30 transition-colors shadow-sm flex items-center justify-between relative animate-fade-in ${isPointed ? 'bg-amber-100 group-hover:bg-amber-200' : 'bg-white group-hover:bg-slate-50'}`}>
                                        <div className="absolute left-14 top-1/2 -translate-y-1/2 flex items-center">
                                          <input 
                                            type="checkbox" 
@@ -1431,6 +1439,9 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
                                           />
                                        </div>
                                        {!isGlobalView && !isAuto && <button type="button" onClick={() => handleDeleteExpenseRow(exp.id)} className="p-1 hover:text-red-500 text-gray-300 transition-colors" title="Supprimer la ligne"><Trash2 size={12} /></button>}
+                                    </td>
+                                    <td style={{ width: EXPENSE_COL2_WIDTH, minWidth: EXPENSE_COL2_WIDTH, left: EXPENSE_COL1_WIDTH }} className={`p-1.5 border-r text-center font-bold text-[10px] sticky z-30 transition-colors shadow-[4px_0_10px_-2px_rgba(0,0,0,0.15)] ${isPointed ? 'bg-amber-100 group-hover:bg-amber-200' : 'bg-slate-50 group-hover:bg-slate-100'} ${expTotal < 0 ? 'text-emerald-600' : 'text-navy'} ${isAuto ? 'text-blue-800 font-black' : ''}`}>
+                                      {formatCurrency(expTotal)}
                                     </td>
                                     {MONTHS.map((m, idx) => {
                                       const val = exp.monthlyAmounts?.[m.id] || 0;
@@ -1490,9 +1501,6 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
                                         </td>
                                       );
                                     })}
-                                    <td className={`p-1.5 border-l text-center font-bold text-[10px] transition-colors ${isPointed ? 'bg-amber-100/40' : ''} ${(Object.values(exp.monthlyAmounts || {}) as number[]).reduce((a: number, b: number) => a + b, 0) < 0 ? 'text-emerald-600' : 'text-navy'} ${isAuto ? 'text-blue-800 font-black' : ''}`}>
-                                      {formatCurrency((Object.values(exp.monthlyAmounts || {}) as number[]).reduce((a: number, b: number) => a + b, 0))}
-                                    </td>
                                   </tr>
                                 );
                               })}
@@ -1506,13 +1514,15 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
               </tbody>
               <tfoot className="sticky bottom-0 z-50 bg-navy text-white shadow-[0_-4px_20px_rgba(0,0,0,0.4)]">
                 <tr className="font-black text-[11px] uppercase tracking-[0.2em]">
-                  <td className="py-4 px-4 border-r sticky left-0 z-[60] bg-navy shadow-sm w-[650px]">TOTAL GÉNÉRAL DES CHARGES FY</td>
+                  <td style={{ width: EXPENSE_COL1_WIDTH, minWidth: EXPENSE_COL1_WIDTH }} className="py-4 px-4 border-r sticky left-0 z-[60] bg-navy shadow-sm">TOTAL GÉNÉRAL DES CHARGES FY</td>
+                  <td style={{ width: EXPENSE_COL2_WIDTH, minWidth: EXPENSE_COL2_WIDTH, left: EXPENSE_COL1_WIDTH }} className="py-4 px-4 border-r text-center text-yellow-accent bg-navy font-black sticky z-[60] shadow-[4px_0_10px_-2px_rgba(0,0,0,0.15)]">
+                    {formatCurrency((plData?.totalExpensesMonthly || Array(12).fill(0)).reduce((a, b) => a + b, 0))}
+                  </td>
                   {(plData?.totalExpensesMonthly || Array(12).fill(0)).map((total, i) => (
                     <td key={i} className={`py-4 px-4 text-center border-r border-white/10 bg-navy ${total < 0 ? 'text-emerald-400' : ''}`}>
                       {formatCurrency(total)}
                     </td>
                   ))}
-                  <td className="py-4 px-4 border-l text-center text-yellow-accent bg-navy">{formatCurrency((plData?.totalExpensesMonthly || Array(12).fill(0)).reduce((a, b) => a + b, 0))}</td>
                 </tr>
               </tfoot>
             </table>
