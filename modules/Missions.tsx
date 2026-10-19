@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { 
   AppState, Mission, Country, MissionStatus, BillingMode, 
-  PlanningEntry, ExternalFreelance, ExternalSubcontractor, InternalStaffing, ManualExpense, TimesheetStatus 
+  PlanningEntry, ExternalFreelance, ExternalSubcontractor, InternalStaffing, ManualExpense, TimesheetStatus, MonthlyBillingOverride 
 } from '../types';
 import { generateId, getBusinessDays, getMonday, getFiscalYear, calculateTotalMissionRevenue, calculateSmoothedMissionRevenue } from '../utils';
 import { 
@@ -30,7 +30,8 @@ import {
   deleteMissionFromCloud, 
   deletePlanningEntriesForMission,
   isValidUuid,
-  loadPlanningFromCloud
+  loadPlanningFromCloud,
+  syncBudgetDataToCloud
 } from '../services/dataService';
 import { MISSION_TYPES, TYPOLOGIES } from '../constants';
 import { 
@@ -302,16 +303,41 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
         });
       } else {
         const totalAmount = row.amount || 0;
-        const totalDays = Math.max(1, differenceInDays(end, start) + 1);
-        const dailyRate = totalAmount / totalDays;
+        // Détecter les mois déjà validés finance pour ce sous-traitant
+        let validatedSum = 0;
+        const validatedMonths = new Set<number>();
         MONTHS.forEach(m => {
+          const status = storedExp?.monthlyStatuses?.[m.id];
+          if (status === 'VALIDATED') {
+            validatedMonths.add(m.id);
+            validatedSum += Number(storedExp?.monthlyAmounts?.[m.id] || 0);
+          }
+        });
+
+        const remainingAmount = Math.max(0, totalAmount - validatedSum);
+        let totalNonValidatedDays = 0;
+        const monthDays: Record<number, number> = {};
+
+        MONTHS.forEach(m => {
+          if (validatedMonths.has(m.id)) return;
           const monthStart = startOfMonth(new Date(m.id === 0 ? fyYear + 1 : fyYear, m.id, 1));
           const monthEnd = endOfMonth(monthStart);
           const overlapStart = start > monthStart ? start : monthStart;
           const overlapEnd = end < monthEnd ? end : monthEnd;
           if (overlapStart <= overlapEnd) {
             const overlapDays = differenceInDays(overlapEnd, overlapStart) + 1;
-            defaultMonthlyAmounts[m.id] = overlapDays * dailyRate;
+            monthDays[m.id] = overlapDays;
+            totalNonValidatedDays += overlapDays;
+          }
+        });
+
+        MONTHS.forEach(m => {
+          if (validatedMonths.has(m.id)) {
+            defaultMonthlyAmounts[m.id] = Number(storedExp?.monthlyAmounts?.[m.id] || 0);
+          } else if (monthDays[m.id] !== undefined) {
+            defaultMonthlyAmounts[m.id] = totalNonValidatedDays > 0
+              ? (monthDays[m.id] / totalNonValidatedDays) * remainingAmount
+              : 0;
           }
         });
       }
@@ -328,17 +354,20 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
     let totalPrev = 0; // FNP, Facture parvenue ou juste entrée brute sont considérées comme du prévisionnel
 
     monthIds.forEach(mId => {
-      const manualVal = storedExp?.monthlyAmounts?.[mId];
-      // Si une valeur a été saisie dans Dépenses (même 0 €), on prend manualVal, sinon le calcul auto
-      const val = manualVal !== undefined ? Number(manualVal) : (defaultMonthlyAmounts[mId] || 0);
       const status = storedExp?.monthlyStatuses?.[mId] || 'NONE';
       const isValidated = status === 'VALIDATED';
 
       if (isValidated) {
-        // Seules les données "validé finance" (pastille verte) sont du réel
+        // Seules les données "validé finance" (pastille verte) sont du réel : montant validé figé
+        const val = storedExp?.monthlyAmounts?.[mId] !== undefined
+          ? Number(storedExp.monthlyAmounts[mId])
+          : (defaultMonthlyAmounts[mId] || 0);
         totalReal += val;
       } else {
-        // FNP, Facture parvenue ou juste entrée brute = prévisionnel
+        // FNP, Facture parvenue ou non validé = prévisionnel (recalcul issu des nouvelles infos de mission)
+        const val = defaultMonthlyAmounts[mId] !== undefined
+          ? defaultMonthlyAmounts[mId]
+          : (storedExp?.monthlyAmounts?.[mId] !== undefined ? Number(storedExp.monthlyAmounts[mId]) : 0);
         totalPrev += val;
       }
     });
@@ -501,18 +530,79 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
       const actualYear = parseInt(actualFYStr.replace('FY', ''));
       const nextFYStr = `FY${actualYear + 1}`;
 
+      const adjustFyOverrides = (fyStr: string, targetRevenue: number) => {
+        const fyYearInt = parseInt(fyStr.replace('FY', ''));
+        if (isNaN(fyYearInt)) return;
+
+        const currentFyOverrides = (updatedOverrides[fyStr] || {}) as Record<number, MonthlyBillingOverride>;
+        const mStart = parseISO(editingMission.startDate || '');
+        const mEnd = parseISO(editingMission.endDate || '');
+
+        const activeMonths: number[] = [];
+        MONTHS.forEach(m => {
+          const targetDate = new Date(m.id === 0 ? fyYearInt + 1 : fyYearInt, m.id, 15);
+          if (isValid(mStart) && isValid(mEnd) && isWithinInterval(targetDate, { start: startOfMonth(mStart), end: endOfMonth(mEnd) })) {
+            activeMonths.push(m.id);
+          }
+        });
+
+        let validatedSum = 0;
+        const nonValidatedActiveMonths: number[] = [];
+
+        activeMonths.forEach(mId => {
+          const override = currentFyOverrides[mId];
+          if (override?.isValidated) {
+            validatedSum += (override.amount || 0);
+          } else {
+            nonValidatedActiveMonths.push(mId);
+          }
+        });
+
+        const remainingRevenue = Math.max(0, targetRevenue - validatedSum);
+        const amountPerNonValidated = nonValidatedActiveMonths.length > 0 
+          ? remainingRevenue / nonValidatedActiveMonths.length 
+          : 0;
+
+        const nextFyOverrides: Record<number, MonthlyBillingOverride> = {};
+
+        // 1. Conserver STRICTEMENT tous les mois validés (montant, statut validé, commentaire)
+        Object.entries(currentFyOverrides).forEach(([mIdStr, val]) => {
+          const mId = Number(mIdStr);
+          const overrideVal = val as MonthlyBillingOverride;
+          if (overrideVal?.isValidated) {
+            nextFyOverrides[mId] = { ...overrideVal };
+          }
+        });
+
+        // 2. Mettre à jour les mois actifs non validés avec le solde restant, en gardant leurs commentaires
+        nonValidatedActiveMonths.forEach(mId => {
+          const existingVal = currentFyOverrides[mId];
+          nextFyOverrides[mId] = {
+            amount: Math.round(amountPerNonValidated),
+            isValidated: false,
+            comment: existingVal?.comment
+          };
+        });
+
+        updatedOverrides[fyStr] = nextFyOverrides;
+      };
+
       if (
         editingMission.forfaitAmountCurrentFY !== originalMission.forfaitAmountCurrentFY ||
-        editingMission.successFeesCurrentFY !== originalMission.successFeesCurrentFY
+        editingMission.successFeesCurrentFY !== originalMission.successFeesCurrentFY ||
+        editingMission.startDate !== originalMission.startDate ||
+        editingMission.endDate !== originalMission.endDate
       ) {
-        delete updatedOverrides[actualFYStr];
+        adjustFyOverrides(actualFYStr, (Number(editingMission.forfaitAmountCurrentFY) || 0) + (Number(editingMission.successFeesCurrentFY) || 0));
       }
 
       if (
         editingMission.forfaitAmountNextFY !== originalMission.forfaitAmountNextFY ||
-        editingMission.successFeesNextFY !== originalMission.successFeesNextFY
+        editingMission.successFeesNextFY !== originalMission.successFeesNextFY ||
+        editingMission.startDate !== originalMission.startDate ||
+        editingMission.endDate !== originalMission.endDate
       ) {
-        delete updatedOverrides[nextFYStr];
+        adjustFyOverrides(nextFYStr, (Number(editingMission.forfaitAmountNextFY) || 0) + (Number(editingMission.successFeesNextFY) || 0));
       }
     }
 
@@ -572,9 +662,45 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
       generateEntries(s.id, s.startDate, s.endDate, s.percentage, costPerDay, tjmPerDay, s.entity, 'subcontractor');
     });
 
+    // Synchronisation Dépenses (Freelances et Sous-traitants) :
+    // Lorsqu'on modifie une mission, on conserve scrupuleusement les montants "validé finance"
+    // et tous les commentaires. On réinitialise les montants non validés pour que le recalcul automatique prenne effet.
+    let updatedManualExpenses = state.manualExpenses;
+    if (editingMission.id && state.manualExpenses) {
+      let hasManualChanges = false;
+      const nextManualExpenses = JSON.parse(JSON.stringify(state.manualExpenses));
+
+      Object.keys(nextManualExpenses).forEach(fyKey => {
+        const countryObj = nextManualExpenses[fyKey] || {};
+        Object.keys(countryObj).forEach(cKey => {
+          const expList = countryObj[cKey] || [];
+          expList.forEach((exp: ManualExpense) => {
+            if (exp.id.startsWith('auto-') && exp.id.endsWith(`-${missionId}`)) {
+              const newMonthlyAmounts: Record<number, number> = {};
+              Object.entries(exp.monthlyAmounts || {}).forEach(([mStr, amt]) => {
+                const mId = Number(mStr);
+                const isVal = exp.monthlyStatuses?.[mId] === 'VALIDATED';
+                if (isVal) {
+                  // Garder intact le montant validé finance (pastille verte)
+                  newMonthlyAmounts[mId] = amt;
+                }
+              });
+              exp.monthlyAmounts = newMonthlyAmounts;
+              hasManualChanges = true;
+            }
+          });
+        });
+      });
+
+      if (hasManualChanges) {
+        updatedManualExpenses = nextManualExpenses;
+      }
+    }
+
     updateState({ 
       missions: updatedMissions,
-      planning: [...otherPlanning, ...newMissionPlanning]
+      planning: [...otherPlanning, ...newMissionPlanning],
+      manualExpenses: updatedManualExpenses
     });
 
     // Robust Cloud Sync
@@ -585,6 +711,14 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
         await syncMissionToCloud(finalMission);
         if (newMissionPlanning.length > 0) {
           await syncPlanningToCloud(newMissionPlanning);
+        }
+        
+        if (updatedManualExpenses !== state.manualExpenses) {
+          try {
+            await syncBudgetDataToCloud({ ...state, manualExpenses: updatedManualExpenses });
+          } catch (err) {
+            console.error('Error syncing budget data to cloud:', err);
+          }
         }
         
         // Refresh planning from cloud after save to ensure all clients have the same view

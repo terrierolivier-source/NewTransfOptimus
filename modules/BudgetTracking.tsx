@@ -466,17 +466,53 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
         const start = parseISO(s.startDate);
         const end = parseISO(s.endDate);
         if (!isValid(start) || !isValid(end)) return;
-        const totalDays = Math.max(1, differenceInDays(end, start) + 1);
-        const dailyRate = s.amount / totalDays;
+
+        // Détecter les mois déjà validés finance pour ce sous-traitant
+        const countryKey = mission.country || globalCountry;
+        const storedExpenses = manualExpenses[globalFY]?.[countryKey] || [];
+        const stored = storedExpenses.find(e => e.id === id);
+
+        let validatedSum = 0;
+        const validatedMonths = new Set<number>();
+        if (stored) {
+          Object.entries(stored.monthlyStatuses || {}).forEach(([mKey, status]) => {
+            const mId = Number(mKey);
+            if (status === 'VALIDATED') {
+              validatedMonths.add(mId);
+              validatedSum += Number(stored.monthlyAmounts?.[mId] || 0);
+            }
+          });
+        }
+
+        const remainingAmount = Math.max(0, s.amount - validatedSum);
+
+        // Calculer les jours ouvrés/calendaires sur les mois non encore validés
+        let totalNonValidatedDays = 0;
+        const monthOverlapDays: Record<number, number> = {};
 
         MONTHS.forEach(m => {
+          if (validatedMonths.has(m.id)) return;
           const monthStart = startOfMonth(new Date(m.id === 0 ? fyYear + 1 : fyYear, m.id, 1));
           const monthEnd = endOfMonth(monthStart);
           const overlapStart = start > monthStart ? start : monthStart;
           const overlapEnd = end < monthEnd ? end : monthEnd;
           if (overlapStart <= overlapEnd) {
             const overlapDays = differenceInDays(overlapEnd, overlapStart) + 1;
-            defaults[id][m.id] = overlapDays * dailyRate;
+            monthOverlapDays[m.id] = overlapDays;
+            totalNonValidatedDays += overlapDays;
+          }
+        });
+
+        MONTHS.forEach(m => {
+          if (validatedMonths.has(m.id)) {
+            // Mois validé finance : conserve strictement le montant validé
+            defaults[id][m.id] = stored?.monthlyAmounts?.[m.id] || 0;
+          } else if (monthOverlapDays[m.id] !== undefined) {
+            if (totalNonValidatedDays > 0) {
+              defaults[id][m.id] = (monthOverlapDays[m.id] / totalNonValidatedDays) * remainingAmount;
+            } else {
+              defaults[id][m.id] = 0;
+            }
           }
         });
       });
@@ -484,7 +520,7 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
     return defaults;
   };
 
-  const autoDefaults = useMemo(() => calculateAutoStaffingDefaults(), [missions, globalFY, state.holidays]);
+  const autoDefaults = useMemo(() => calculateAutoStaffingDefaults(), [missions, globalFY, state.holidays, manualExpenses]);
 
   const currentFamilies = useMemo(() => {
     const templateCountry = isGlobalView ? Country.FRANCE : (globalCountry as Country);
@@ -548,12 +584,20 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
         };
 
         MONTHS.forEach(m => {
-          const manualVal = stored?.monthlyAmounts?.[m.id];
-          if (manualVal !== undefined) {
-            expense.monthlyAmounts[m.id] = manualVal;
+          const status = stored?.monthlyStatuses?.[m.id];
+          const isValidated = status === 'VALIDATED';
+
+          if (isValidated) {
+            // Mois validé finance : strictement intouchable, montant validé figé
+            expense.monthlyAmounts[m.id] = stored?.monthlyAmounts?.[m.id] ?? autoDefaults[autoId]?.[m.id] ?? 0;
           } else {
+            const manualVal = stored?.monthlyAmounts?.[m.id];
             const autoVal = autoDefaults[autoId]?.[m.id];
-            if (autoVal !== undefined) expense.monthlyAmounts[m.id] = autoVal;
+            if (manualVal !== undefined) {
+              expense.monthlyAmounts[m.id] = manualVal;
+            } else if (autoVal !== undefined) {
+              expense.monthlyAmounts[m.id] = autoVal;
+            }
           }
         });
 
@@ -594,26 +638,57 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
     return aggregated;
   }, [budgetValues, globalFY, relevantCountries]);
 
-    const getMissionBillingData = (mission: Mission) => {
+  const getMissionBillingData = (mission: Mission) => {
     const overrides = mission.billingOverrides?.[globalFY] || {};
     const mStart = parseISO(mission.startDate);
     const mEnd = parseISO(mission.endDate);
     const monthlyData: MonthlyBillingOverride[] = MONTHS.map(() => ({ amount: 0, isValidated: false }));
 
-    const amountPerMonth = calculateMonthlySmoothedRevenue(mission);
-
-    if (amountPerMonth > 0 && isValid(mStart) && isValid(mEnd)) {
-        MONTHS.forEach((m, idx) => {
-          // On considère qu'un mois fait partie de la facturation si le 15 du mois est dans l'intervalle de la mission
-          // (C'est une approximation robuste pour compter les mois touchés)
-          const targetMonthDate = new Date(m.id === 0 ? currentYearInt + 1 : currentYearInt, m.id, 15);
-          if (isWithinInterval(targetMonthDate, { start: startOfMonth(mStart), end: endOfMonth(mEnd) })) {
-            monthlyData[idx].amount = amountPerMonth;
-          }
-        });
+    const fyYearInt = parseInt(globalFY.replace('FY', ''));
+    const activeMonthsIndices: number[] = [];
+    if (isValid(mStart) && isValid(mEnd)) {
+      MONTHS.forEach((m, idx) => {
+        const targetMonthDate = new Date(m.id === 0 ? fyYearInt + 1 : fyYearInt, m.id, 15);
+        if (isWithinInterval(targetMonthDate, { start: startOfMonth(mStart), end: endOfMonth(mEnd) })) {
+          activeMonthsIndices.push(idx);
+        }
+      });
     }
-    MONTHS.forEach((m, idx) => { if (overrides[m.id]) monthlyData[idx] = { ...overrides[m.id] }; });
-    
+
+    // Calculer les montants déjà validés sur ce FY
+    let validatedSum = 0;
+    const nonValidatedIndices: number[] = [];
+    activeMonthsIndices.forEach(idx => {
+      const m = MONTHS[idx];
+      if (overrides[m.id]?.isValidated) {
+        validatedSum += (overrides[m.id].amount || 0);
+      } else {
+        nonValidatedIndices.push(idx);
+      }
+    });
+
+    const actualFYStr = getFiscalYear(new Date());
+    const fyTargetRevenue = (globalFY === actualFYStr)
+      ? ((Number(mission.forfaitAmountCurrentFY) || 0) + (Number(mission.successFeesCurrentFY) || 0))
+      : ((Number(mission.forfaitAmountNextFY) || 0) + (Number(mission.successFeesNextFY) || 0));
+
+    const remainingRevenue = Math.max(0, fyTargetRevenue - validatedSum);
+    const defaultNonValidatedAmount = nonValidatedIndices.length > 0
+      ? remainingRevenue / nonValidatedIndices.length
+      : 0;
+
+    // Remplir les mois non validés avec le montant lissé résiduel
+    nonValidatedIndices.forEach(idx => {
+      monthlyData[idx].amount = defaultNonValidatedAmount;
+    });
+
+    // Appliquer les overrides (conserve strictement les mois validés et les montants personnalisés)
+    MONTHS.forEach((m, idx) => {
+      if (overrides[m.id]) {
+        monthlyData[idx] = { ...overrides[m.id] };
+      }
+    });
+
     const totalFY = monthlyData.reduce((acc, m) => acc + m.amount, 0);
     const totalMissionOverall = calculateTotalMissionRevenue(mission);
 
