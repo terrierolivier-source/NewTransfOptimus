@@ -282,14 +282,28 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
     }
 
     // Calcul des montants automatiques de base (autoDefaults de Suivi Budgétaire)
+    // Calcul des montants automatiques de base (autoDefaults de Suivi Budgétaire)
     const fyYear = parseInt((state.globalFY || 'FY2026').replace('FY', '')) || today.getFullYear();
     const defaultMonthlyAmounts: Record<number, number> = {};
+
+    // Vérifie si un mois mId se situe dans l'intervalle contractuel [start, end] du profil
+    const isMonthInContractInterval = (mId: number): boolean => {
+      if (!isValid(start) || !isValid(end)) return false;
+      const monthStart = startOfMonth(new Date(mId === 0 ? fyYear + 1 : fyYear, mId, 1));
+      const monthEnd = endOfMonth(monthStart);
+      return start <= monthEnd && end >= monthStart;
+    };
 
     if (isValid(start) && isValid(end)) {
       if (resType === 'f') {
         const cjm = row.cjm || 500;
         const percentage = row.percentage || 100;
         MONTHS.forEach(m => {
+          const status = storedExp?.monthlyStatuses?.[m.id];
+          if (status === 'VALIDATED') {
+            defaultMonthlyAmounts[m.id] = Number(storedExp?.monthlyAmounts?.[m.id] || 0);
+            return;
+          }
           const monthStart = startOfMonth(new Date(m.id === 0 ? fyYear + 1 : fyYear, m.id, 1));
           const monthEnd = endOfMonth(monthStart);
           const overlapStart = start > monthStart ? start : monthStart;
@@ -364,13 +378,22 @@ const Missions: React.FC<MissionsProps> = ({ state, updateState }) => {
           : (defaultMonthlyAmounts[mId] || 0);
         totalReal += val;
       } else {
-        // FNP, Facture parvenue ou non validé = prévisionnel (recalcul issu des nouvelles infos de mission)
-        const val = defaultMonthlyAmounts[mId] !== undefined
-          ? defaultMonthlyAmounts[mId]
-          : (storedExp?.monthlyAmounts?.[mId] !== undefined ? Number(storedExp.monthlyAmounts[mId]) : 0);
-        totalPrev += val;
+        // Mois non validé : pris en compte UNIQUEMENT s'il se trouve dans la période contractuelle actuelle !
+        // Les anciens montants résiduels sur des mois devenus hors-période ne sont jamais comptabilisés
+        if (isMonthInContractInterval(mId)) {
+          const val = defaultMonthlyAmounts[mId] !== undefined
+            ? defaultMonthlyAmounts[mId]
+            : (storedExp?.monthlyAmounts?.[mId] !== undefined ? Number(storedExp.monthlyAmounts[mId]) : 0);
+          totalPrev += val;
+        }
       }
     });
+
+    // Pour les sous-traitants, s'assurer que le prévisionnel correspond exactement au solde d'achat contractuel
+    if (resType === 's') {
+      const contractAmount = row.amount || 0;
+      totalPrev = Math.max(0, contractAmount - totalReal);
+    }
 
     const totalRealPlusPrev = totalReal + totalPrev;
 

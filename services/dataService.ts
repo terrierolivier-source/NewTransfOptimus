@@ -657,96 +657,113 @@ export const loadStateFromCloud = async (): Promise<Partial<AppState>> => {
 
   try {
     // Config
-    try {
-      const { data: config } = await supabase.from('config').select('*').eq('key', 'global').single();
-      if (config) {
-        results.globalFY = config.data.globalFY;
-        results.globalCountry = config.data.globalCountry;
-        results.globalLanguage = config.data.globalLanguage;
-        results.isMonthlyClosed = config.data.isMonthlyClosed;
-      }
-    } catch (e) { console.warn('Config load failed', e); }
-
-    // Missions (Paginated)
-    try {
-      let allMissionsRaw: any[] = [];
-      let from = 0;
-      const PAGE_SIZE = 1000;
-      let hasMore = true;
-      while (hasMore) {
-        const { data, error } = await supabase.from('missions').select('*').range(from, from + PAGE_SIZE - 1);
-        if (error) throw error;
-        if (data && data.length > 0) {
-          allMissionsRaw = [...allMissionsRaw, ...data];
-          from += PAGE_SIZE;
-          hasMore = data.length === PAGE_SIZE;
-        } else { hasMore = false; }
-      }
-      results.missions = allMissionsRaw.map(m => mapSupabaseToMission(m));
-    } catch (e) { console.warn('Missions load failed', e); }
-
-    // Collaborators (Paginated)
-    try {
-      let allCollabsRaw: any[] = [];
-      let from = 0;
-      const PAGE_SIZE = 1000;
-      let hasMore = true;
-      while (hasMore) {
-        const { data, error } = await supabase.from('collaborators').select('*').range(from, from + PAGE_SIZE - 1);
-        if (error) throw error;
-        if (data && data.length > 0) {
-          allCollabsRaw = [...allCollabsRaw, ...data];
-          from += PAGE_SIZE;
-          hasMore = data.length === PAGE_SIZE;
-        } else { hasMore = false; }
-      }
-      results.collaborators = allCollabsRaw.map(c => mapSupabaseToCollaborator(c));
-    } catch (e) { console.warn('Collaborators load failed', e); }
-
-    // Users (Paginated)
-    try {
-      let allUsersRaw: any[] = [];
-      let from = 0;
-      const PAGE_SIZE = 1000;
-      let hasMore = true;
-      while (hasMore) {
-        const { data, error } = await supabase.from('users').select('*').range(from, from + PAGE_SIZE - 1);
-        if (error) throw error;
-        if (data && data.length > 0) {
-          allUsersRaw = [...allUsersRaw, ...data];
-          from += PAGE_SIZE;
-          hasMore = data.length === PAGE_SIZE;
-        } else { hasMore = false; }
-      }
-      results.users = allUsersRaw.map(u => mapSupabaseToUser(u));
-    } catch (e) { console.warn('Users load failed', e); }
-
-    // Planning (Paginated)
-    try {
-      results.planning = await loadPlanningFromCloud();
-    } catch (e) { console.warn('Planning load failed', e); }
-
-    // Timesheets (Paginated)
-    try {
-      results.timesheets = await loadTimesheetsFromCloud();
-    } catch (e) { console.warn('Timesheets load failed', e); }
-
-    // Budget (Charger tous les exercices fiscaux disponibles pour garantir l'intégrité multi-FY)
-    try {
-      const { data: allBudgets } = await supabase.from('budget_data').select('*');
-      if (allBudgets && allBudgets.length > 0) {
-        results.manualExpenses = {};
-        results.budgetFamilies = {};
-        results.budgetValues = {};
-        allBudgets.forEach(b => {
-          if (b.fy) {
-            results.manualExpenses![b.fy] = b.manual_expenses || {};
-            results.budgetFamilies![b.fy] = b.budget_families || {};
-            results.budgetValues![b.fy] = b.budget_values || {};
+    await Promise.allSettled([
+      // 1. Config
+      (async () => {
+        try {
+          const { data: config } = await supabase.from('config').select('*').eq('key', 'global').single();
+          if (config) {
+            results.globalFY = config.data.globalFY;
+            results.globalCountry = config.data.globalCountry;
+            results.globalLanguage = config.data.globalLanguage;
+            results.isMonthlyClosed = config.data.isMonthlyClosed;
           }
-        });
-      }
-    } catch (e) { console.warn('Budget multi-FY load failed', e); }
+        } catch (e) { console.warn('Config load failed', e); }
+      })(),
+
+      // 2. Missions (Paginated)
+      (async () => {
+        try {
+          let allMissionsRaw: any[] = [];
+          let from = 0;
+          const PAGE_SIZE = 1000;
+          let hasMore = true;
+          while (hasMore) {
+            const { data, error } = await supabase.from('missions').select('*').range(from, from + PAGE_SIZE - 1);
+            if (error) throw error;
+            if (data && data.length > 0) {
+              allMissionsRaw = [...allMissionsRaw, ...data];
+              from += PAGE_SIZE;
+              hasMore = data.length === PAGE_SIZE;
+            } else { hasMore = false; }
+          }
+          results.missions = allMissionsRaw.map(m => mapSupabaseToMission(m));
+        } catch (e) { console.warn('Missions load failed', e); }
+      })(),
+
+      // 3. Collaborators (Paginated)
+      (async () => {
+        try {
+          let allCollabsRaw: any[] = [];
+          let from = 0;
+          const PAGE_SIZE = 1000;
+          let hasMore = true;
+          while (hasMore) {
+            const { data, error } = await supabase.from('collaborators').select('*').range(from, from + PAGE_SIZE - 1);
+            if (error) throw error;
+            if (data && data.length > 0) {
+              allCollabsRaw = [...allCollabsRaw, ...data];
+              from += PAGE_SIZE;
+              hasMore = data.length === PAGE_SIZE;
+            } else { hasMore = false; }
+          }
+          results.collaborators = allCollabsRaw.map(c => mapSupabaseToCollaborator(c));
+        } catch (e) { console.warn('Collaborators load failed', e); }
+      })(),
+
+      // 4. Users (Paginated)
+      (async () => {
+        try {
+          let allUsersRaw: any[] = [];
+          let from = 0;
+          const PAGE_SIZE = 1000;
+          let hasMore = true;
+          while (hasMore) {
+            const { data, error } = await supabase.from('users').select('*').range(from, from + PAGE_SIZE - 1);
+            if (error) throw error;
+            if (data && data.length > 0) {
+              allUsersRaw = [...allUsersRaw, ...data];
+              from += PAGE_SIZE;
+              hasMore = data.length === PAGE_SIZE;
+            } else { hasMore = false; }
+          }
+          results.users = allUsersRaw.map(u => mapSupabaseToUser(u));
+        } catch (e) { console.warn('Users load failed', e); }
+      })(),
+
+      // 5. Planning (Paginated)
+      (async () => {
+        try {
+          results.planning = await loadPlanningFromCloud();
+        } catch (e) { console.warn('Planning load failed', e); }
+      })(),
+
+      // 6. Timesheets (Paginated)
+      (async () => {
+        try {
+          results.timesheets = await loadTimesheetsFromCloud();
+        } catch (e) { console.warn('Timesheets load failed', e); }
+      })(),
+
+      // 7. Budget (Charger tous les exercices fiscaux disponibles pour garantir l'intégrité multi-FY)
+      (async () => {
+        try {
+          const { data: allBudgets } = await supabase.from('budget_data').select('*');
+          if (allBudgets && allBudgets.length > 0) {
+            results.manualExpenses = {};
+            results.budgetFamilies = {};
+            results.budgetValues = {};
+            allBudgets.forEach(b => {
+              if (b.fy) {
+                results.manualExpenses![b.fy] = b.manual_expenses || {};
+                results.budgetFamilies![b.fy] = b.budget_families || {};
+                results.budgetValues![b.fy] = b.budget_values || {};
+              }
+            });
+          }
+        } catch (e) { console.warn('Budget multi-FY load failed', e); }
+      })()
+    ]);
     return results;
   } catch (e) {
     console.warn('Supabase global load failed', e);

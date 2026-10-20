@@ -447,7 +447,27 @@ const BudgetTracking: React.FC<BudgetTrackingProps> = ({ state, updateState }) =
         const end = parseISO(f.endDate);
         if (!isValid(start) || !isValid(end)) return;
 
+        // Détecter les mois déjà validés finance pour ce freelance
+        const countryKey = mission.country || globalCountry;
+        const storedExpenses = manualExpenses[globalFY]?.[countryKey] || [];
+        const stored = storedExpenses.find(e => e.id === id);
+
+        const validatedMonths = new Set<number>();
+        if (stored) {
+          Object.entries(stored.monthlyStatuses || {}).forEach(([mKey, status]) => {
+            const mId = Number(mKey);
+            if (status === 'VALIDATED') {
+              validatedMonths.add(mId);
+            }
+          });
+        }
+
         MONTHS.forEach(m => {
+          if (validatedMonths.has(m.id)) {
+            // Mois validé finance : conserve strictement le montant validé figé
+            defaults[id][m.id] = stored?.monthlyAmounts?.[m.id] || 0;
+            return;
+          }
           const monthStart = startOfMonth(new Date(m.id === 0 ? fyYear + 1 : fyYear, m.id, 1));
           const monthEnd = endOfMonth(monthStart);
           const overlapStart = start > monthStart ? start : monthStart;
