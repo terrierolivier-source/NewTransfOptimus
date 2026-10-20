@@ -45,49 +45,22 @@ const App: React.FC = () => {
   const isInitialLoadCompleteRef = React.useRef(false);
   const isCloudLoadingRef = React.useRef(false);
   const pendingChangesRef = React.useRef(0);
+  const isAuthorizedRef = React.useRef(isAuthorized);
+  const triggerInitialLoadRef = React.useRef<((currentSession: any) => Promise<void>) | null>(null);
 
   // Sync refs with state
   useEffect(() => {
     isInitialLoadCompleteRef.current = isInitialLoadComplete;
     pendingChangesRef.current = pendingChanges;
-  }, [isInitialLoadComplete, pendingChanges]);
+    isAuthorizedRef.current = isAuthorized;
+  }, [isInitialLoadComplete, pendingChanges, isAuthorized]);
 
   useEffect(() => {
     let unsubs: (() => void)[] = [];
-
-    const handleSession = async (event: string, currentSession: any) => {
-      console.log(`[Auth] Event: ${event}`);
-      
-      const isSignificantEvent = ['INITIAL_SESSION', 'SIGNED_IN'].includes(event);
-      
-      if (!isSignificantEvent && currentSession) {
-        setSession(currentSession);
-        return;
-      }
-
-      if (!currentSession) {
-        console.log("[Auth] No session found. Cleaning up.");
-        setSession(null);
-        setLoading(false);
-        setIsInitialLoadComplete(false);
-        isInitialLoadCompleteRef.current = false;
-        return;
-      }
-
-      setSession(currentSession);
-      
-      const authorized = localStorage.getItem('optimus_authorized') === 'true';
-      if (!authorized) {
-        console.log("[Auth] Waiting for AccessGate authorization...");
-        setLoading(false);
-        return;
-      }
-
-      await triggerInitialLoad(currentSession);
-    };
+    let isCancelled = false;
 
     const triggerInitialLoad = async (currentSession: any) => {
-      if (isInitialLoadCompleteRef.current || isCloudLoadingRef.current) return;
+      if (isInitialLoadCompleteRef.current || isCloudLoadingRef.current || isCancelled) return;
       isCloudLoadingRef.current = true;
       
       setIsCloudLoading(true);
@@ -103,6 +76,7 @@ const App: React.FC = () => {
             };
           });
           setIsInitialLoadComplete(true);
+          isInitialLoadCompleteRef.current = true;
           return;
         }
 
@@ -117,6 +91,8 @@ const App: React.FC = () => {
         console.log("[Init] Loading data from Supabase...");
         const cloudData = await loadStateFromCloud();
         
+        if (isCancelled) return;
+
         setState(prev => {
           const currentPending = localStorage.getItem('optimus_pending_sync') === 'true';
           if (isInitialLoadCompleteRef.current && (pendingChangesRef.current > 0 || currentPending)) {
@@ -137,6 +113,7 @@ const App: React.FC = () => {
 
         console.log("[Init] Initial load complete.");
         setIsInitialLoadComplete(true);
+        isInitialLoadCompleteRef.current = true;
 
         // Check if a daily backup point should be created (00h01 and 12h00)
         checkAndTriggerDailyAutoBackup();
@@ -153,7 +130,10 @@ const App: React.FC = () => {
         unsubs.push(...newUnsubs);
         unsubs.push(() => clearInterval(backupInterval));
       } catch (err) {
-        console.warn("[Init] Data load exception (using local storage state)", err);
+        console.warn("[Init] Data load exception (using local storage state fallback)", err);
+        // Garantir que l'app s'ouvre toujours sur les données locales en cas d'erreur ou timeout Supabase
+        setIsInitialLoadComplete(true);
+        isInitialLoadCompleteRef.current = true;
       } finally {
         isCloudLoadingRef.current = false;
         setIsCloudLoading(false);
@@ -161,15 +141,85 @@ const App: React.FC = () => {
       }
     };
 
+    triggerInitialLoadRef.current = triggerInitialLoad;
+
+    const handleSession = async (event: string, currentSession: any) => {
+      console.log(`[Auth] Event: ${event}`);
+      
+      if (!currentSession) {
+        console.log("[Auth] No session found. Cleaning up.");
+        setSession(null);
+        setLoading(false);
+        setIsInitialLoadComplete(false);
+        isInitialLoadCompleteRef.current = false;
+        return;
+      }
+
+      setSession(currentSession);
+      
+      const authorized = localStorage.getItem('optimus_authorized') === 'true';
+      if (!authorized) {
+        console.log("[Auth] Waiting for AccessGate authorization...");
+        setLoading(false);
+        return;
+      }
+
+      // Déclencher le chargement initial si pas encore fait ou événement significatif (incluant TOKEN_REFRESHED)
+      if (!isInitialLoadCompleteRef.current || ['INITIAL_SESSION', 'SIGNED_IN', 'TOKEN_REFRESHED'].includes(event)) {
+        await triggerInitialLoad(currentSession);
+      } else {
+        setLoading(false);
+      }
+    };
+
+    // 1. Écouteur Supabase onAuthStateChange
     const authSubscription = onAuthStateChange((event, newSession) => {
       handleSession(event, newSession);
     });
 
+    // 2. Récupération proactive immédiate de la session pour ne pas dépendre uniquement d'un événement retardé
+    getCurrentSession().then(existingSession => {
+      if (existingSession && !isInitialLoadCompleteRef.current && !isCloudLoadingRef.current) {
+        console.log("[Auth] Session active existante récupérée proactivement");
+        handleSession('INITIAL_SESSION', existingSession);
+      }
+    }).catch(err => {
+      console.warn("[Auth] Erreur récupération session proactive:", err);
+    });
+
+    // 3. Garde-fou anti-blocage (timeout 4.5s) : déverrouille l'écran quoi qu'il arrive
+    const fallbackTimer = setTimeout(() => {
+      setLoading(prev => {
+        if (prev) {
+          console.warn("[Auth] Garde-fou 4.5s atteint - déverrouillage de l'écran d'initialisation");
+          return false;
+        }
+        return prev;
+      });
+      if (!isInitialLoadCompleteRef.current) {
+        console.warn("[Auth] Garde-fou - passage en mode données locales");
+        setIsInitialLoadComplete(true);
+        isInitialLoadCompleteRef.current = true;
+      }
+    }, 4500);
+
     return () => {
+      isCancelled = true;
+      clearTimeout(fallbackTimer);
       authSubscription.unsubscribe();
       unsubs.forEach(u => u());
     };
   }, []); // Only once on mount
+
+  // Déclencher le chargement dès que le code d'accès est validé si une session est déjà présente
+  useEffect(() => {
+    if (isAuthorized && session && !isInitialLoadComplete && !isCloudLoading) {
+      if (triggerInitialLoadRef.current) {
+        console.log("[Auth] AccessGate autorisé - déclenchement du chargement");
+        triggerInitialLoadRef.current(session);
+      }
+    }
+  }, [isAuthorized, session, isInitialLoadComplete, isCloudLoading]);
 
   useEffect(() => {
     saveState(state);
